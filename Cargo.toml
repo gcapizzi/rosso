@@ -1,0 +1,11 @@
+[package]
+name = "rosso"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+
+[dev-dependencies]
+anyhow = "1.0.98"
+redis = "0.30.0"
