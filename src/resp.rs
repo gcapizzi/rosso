@@ -5,6 +5,7 @@ pub enum Value {
     SimpleString(String),
     BulkString(String),
     Array(Vec<Value>),
+    Null,
 }
 
 pub fn parse<R: BufRead>(reader: &mut R) -> std::io::Result<Value> {
@@ -61,6 +62,9 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
             for item in a {
                 serialise(writer, item)?;
             }
+        }
+        Value::Null => {
+            writer.write_all(b"_\r\n")?;
         }
     }
     Ok(())
