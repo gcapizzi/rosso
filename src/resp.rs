@@ -5,6 +5,7 @@ pub enum Value {
     SimpleString(String),
     BulkString(String),
     Array(Vec<Value>),
+    Error(String),
     Null,
 }
 
@@ -46,6 +47,11 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
         Value::SimpleString(s) => {
             writer.write_all(b"+")?;
             writer.write_all(s.as_bytes())?;
+            writer.write_all(b"\r\n")?;
+        }
+        Value::Error(e) => {
+            writer.write_all(b"-")?;
+            writer.write_all(e.to_string().as_bytes())?;
             writer.write_all(b"\r\n")?;
         }
         Value::BulkString(s) => {

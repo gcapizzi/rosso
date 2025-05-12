@@ -25,7 +25,8 @@ fn handle_client(
     let mut writer = BufWriter::new(&stream);
     while has_data_left(&mut reader)? {
         let command = resp::parse(&mut reader)?;
-        let reply = run_command(db, command)?;
+        let reply =
+            run_command(db, command).unwrap_or_else(|e| resp::Value::Error(format!("ERR {}", e)));
         resp::serialise(&mut writer, &reply)?;
         writer.flush()?;
     }
@@ -46,25 +47,26 @@ fn run_command(
         "GET" => {
             let key = cmd
                 .pop_front()
-                .ok_or(anyhow!("GET command requires a key"))?;
-            Ok(db
+                .ok_or(anyhow!("wrong number of arguments for 'get' command"))?;
+            let value = db
                 .get(&key)
                 .map(|v| resp::Value::BulkString(v.clone()))
-                .unwrap_or(resp::Value::Null))
+                .unwrap_or(resp::Value::Null);
+            Ok(value)
         }
         "SET" => {
             let key = cmd
                 .pop_front()
-                .ok_or(anyhow!("SET command requires a key"))?;
+                .ok_or(anyhow!("wrong number of arguments for 'set' command"))?;
             let value = cmd
                 .pop_front()
-                .ok_or(anyhow!("SET command requires a value"))?;
+                .ok_or(anyhow!("wrong number of arguments for 'set' command"))?;
             db.insert(key, value);
             Ok(resp::Value::SimpleString("OK".to_string()))
         }
         "CLIENT" => Ok(resp::Value::SimpleString("OK".to_string())),
         _ => {
-            return Err(anyhow!("unknown command: {}", cmd_name));
+            return Err(anyhow!("unknown command '{}'", cmd_name));
         }
     }
 }

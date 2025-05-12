@@ -19,3 +19,18 @@ fn test_get_non_existent_key() -> Result<()> {
     assert_eq!(None, value);
     Ok(())
 }
+
+#[test]
+fn test_wrong_number_of_args() -> Result<()> {
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    let mut con = client.get_connection()?;
+    let result = redis::cmd("SET").exec(&mut con);
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("wrong number of arguments for 'set' command")
+    );
+    Ok(())
+}
