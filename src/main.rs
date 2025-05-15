@@ -1,32 +1,28 @@
 use std::{
-    collections::VecDeque,
     io::{BufRead, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream},
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
+mod hashmap;
 mod resp;
 
 fn main() -> Result<()> {
-    let mut db: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut redis: hashmap::Redis = hashmap::Redis::new();
     let listener = TcpListener::bind("127.0.0.1:6379")?;
     for stream in listener.incoming() {
-        handle_client(&mut db, stream?)?;
+        handle_client(&mut redis, stream?)?;
     }
     Ok(())
 }
 
-fn handle_client(
-    db: &mut std::collections::HashMap<String, String>,
-    stream: TcpStream,
-) -> Result<()> {
+fn handle_client(redis: &mut hashmap::Redis, stream: TcpStream) -> Result<()> {
     let mut reader = BufReader::new(&stream);
     let mut writer = BufWriter::new(&stream);
     while has_data_left(&mut reader)? {
         let command = resp::parse(&mut reader)?;
-        let reply =
-            run_command(db, command).unwrap_or_else(|e| resp::Value::Error(format!("ERR {}", e)));
+        let reply = redis.call(command);
         resp::serialise(&mut writer, &reply)?;
         writer.flush()?;
     }
@@ -35,57 +31,4 @@ fn handle_client(
 
 fn has_data_left<R: BufRead>(reader: &mut R) -> std::io::Result<bool> {
     reader.fill_buf().map(|b| !b.is_empty())
-}
-
-fn run_command(
-    db: &mut std::collections::HashMap<String, String>,
-    command: resp::Value,
-) -> Result<resp::Value> {
-    let mut cmd = to_vec_of_strings(command)?;
-    let cmd_name = cmd.pop_front().ok_or(anyhow!("command is empty"))?;
-    match cmd_name.as_str() {
-        "GET" => {
-            let key = cmd
-                .pop_front()
-                .ok_or(anyhow!("wrong number of arguments for 'get' command"))?;
-            let value = db
-                .get(&key)
-                .map(|v| resp::Value::BulkString(v.clone()))
-                .unwrap_or(resp::Value::Null);
-            Ok(value)
-        }
-        "SET" => {
-            let key = cmd
-                .pop_front()
-                .ok_or(anyhow!("wrong number of arguments for 'set' command"))?;
-            let value = cmd
-                .pop_front()
-                .ok_or(anyhow!("wrong number of arguments for 'set' command"))?;
-            db.insert(key, value);
-            Ok(resp::Value::SimpleString("OK".to_string()))
-        }
-        "CLIENT" => Ok(resp::Value::SimpleString("OK".to_string())),
-        _ => {
-            return Err(anyhow!("unknown command '{}'", cmd_name));
-        }
-    }
-}
-
-fn to_vec_of_strings(value: resp::Value) -> Result<VecDeque<String>> {
-    if let resp::Value::Array(values) = value {
-        values
-            .into_iter()
-            .map(|v| {
-                if let resp::Value::BulkString(s) = v {
-                    Ok(s)
-                } else {
-                    return Err(anyhow!(
-                        "invalid command: it should be an array of bulk strings",
-                    ));
-                }
-            })
-            .collect::<Result<VecDeque<_>>>()
-    } else {
-        Err(anyhow!("invalid command: it should be an array",))
-    }
 }
