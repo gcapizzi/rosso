@@ -13,33 +13,39 @@ pub fn parse<R: BufRead>(reader: &mut R) -> std::io::Result<Value> {
     let mut prefix = [0];
     reader.read_exact(&mut prefix)?;
     if &prefix == b"*" {
-        let mut array_len_str = String::new();
-        reader.read_line(&mut array_len_str)?;
-        array_len_str.truncate(array_len_str.len() - 2);
-        let array_len: usize = array_len_str.parse().unwrap();
-
-        let mut values = Vec::with_capacity(array_len);
-        for _ in 0..array_len {
+        let len = parse_length(reader)?;
+        let mut values = Vec::with_capacity(len);
+        for _ in 0..len {
             values.push(parse(reader)?);
         }
         Ok(Value::Array(values))
     } else if &prefix == b"$" {
-        let mut string_len_str = String::new();
-        reader.read_line(&mut string_len_str)?;
-        string_len_str.truncate(string_len_str.len() - 2);
-        let string_len: usize = string_len_str.parse().unwrap();
-        let mut string = vec![0; string_len];
-        reader.read_exact(&mut string)?;
-        reader.read_exact(&mut [0; 2])?;
-        Ok(Value::BulkString(String::from_utf8(string).map_err(
-            |_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid bulk string"),
-        )?))
+        let len = parse_length(reader)?;
+        let string = parse_string(reader, len)?;
+        Ok(Value::BulkString(string))
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "invalid prefix",
         ))
     }
+}
+
+fn parse_length<R: BufRead>(reader: &mut R) -> std::io::Result<usize> {
+    let mut len_str = String::new();
+    reader.read_line(&mut len_str)?;
+    len_str.truncate(len_str.len() - 2);
+    len_str
+        .parse()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid length"))
+}
+
+fn parse_string<R: BufRead>(reader: &mut R, length: usize) -> std::io::Result<String> {
+    let mut string = vec![0; length];
+    reader.read_exact(&mut string)?;
+    reader.read_exact(&mut [0; 2])?;
+    String::from_utf8(string)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid bulk string"))
 }
 
 pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()> {
