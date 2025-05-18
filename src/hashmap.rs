@@ -31,3 +31,44 @@ impl Redis {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::redis::Key;
+    use crate::redis::String;
+
+    #[test]
+    fn test_set_and_get() {
+        let mut redis = Redis::new();
+
+        let result = redis.call(redis::Command::Set {
+            key: Key("key".to_string()),
+            value: String("value".to_string()),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Get {
+            key: Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::BulkString("value".to_string()));
+    }
+
+    #[test]
+    fn test_get_nonexistent_key() {
+        let mut redis = Redis::new();
+
+        let result = redis.call(redis::Command::Get {
+            key: Key("nonexistent".to_string()),
+        });
+        assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_client() {
+        let mut redis = Redis::new();
+
+        let result = redis.call(redis::Command::Client);
+        assert_eq!(result, redis::Result::Ok);
+    }
+}

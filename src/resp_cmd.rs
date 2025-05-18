@@ -65,3 +65,117 @@ pub fn serialise_result(result: redis::Result) -> resp::Value {
         redis::Result::Ok => resp::Value::SimpleString("OK".to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::redis::Key;
+    use crate::redis::String;
+
+    #[test]
+    fn test_parse_command_get() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("GET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Get {
+                key: Key("key".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_client() {
+        let command = resp::Value::Array(vec![resp::Value::BulkString("CLIENT".to_string())]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(parsed_command, redis::Command::Client);
+    }
+
+    #[test]
+    fn test_parse_command_unknown() {
+        let command = resp::Value::Array(vec![resp::Value::BulkString("UNKNOWN".to_string())]);
+        let parsed_command = parse_command(command);
+        assert!(parsed_command.is_err());
+        assert_eq!(
+            parsed_command.unwrap_err().to_string(),
+            "unknown command 'UNKNOWN'"
+        );
+    }
+
+    #[test]
+    fn test_parse_command_not_enough_arguments() {
+        let command = resp::Value::Array(vec![resp::Value::BulkString("GET".to_string())]);
+        let parsed_command = parse_command(command);
+        assert!(parsed_command.is_err());
+        assert_eq!(
+            parsed_command.unwrap_err().to_string(),
+            "wrong number of arguments for 'get' command"
+        );
+    }
+
+    #[test]
+    fn test_parse_command_not_array() {
+        let command = resp::Value::SimpleString("Hello".to_string());
+        let parsed_command = parse_command(command);
+        assert!(parsed_command.is_err());
+        assert_eq!(
+            parsed_command.unwrap_err().to_string(),
+            "invalid command: it should be an array"
+        );
+    }
+
+    #[test]
+    fn test_parse_command_not_bulk_string_array() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("GET".to_string()),
+            resp::Value::SimpleString("key".to_string()),
+        ]);
+        let parsed_command = parse_command(command);
+        assert!(parsed_command.is_err());
+        assert_eq!(
+            parsed_command.unwrap_err().to_string(),
+            "invalid command: it should be an array of bulk strings"
+        );
+    }
+
+    #[test]
+    fn test_serialise_result_bulk_string() {
+        let result = redis::Result::BulkString("Hello".to_string());
+        let serialised = serialise_result(result);
+        assert_eq!(serialised, resp::Value::BulkString("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_serialise_result_null() {
+        let result = redis::Result::Null;
+        let serialised = serialise_result(result);
+        assert_eq!(serialised, resp::Value::Null);
+    }
+
+    #[test]
+    fn test_serialise_result_ok() {
+        let result = redis::Result::Ok;
+        let serialised = serialise_result(result);
+        assert_eq!(serialised, resp::Value::SimpleString("OK".to_string()));
+    }
+}

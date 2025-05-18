@@ -1,6 +1,6 @@
 use std::{io::BufRead, io::Write};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Value {
     SimpleString(String),
     BulkString(String),
@@ -80,4 +80,73 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_parse_bulk_string() {
+        let mut reader = Cursor::new(b"$5\r\nHello\r\n");
+        let value = parse(&mut reader).unwrap();
+        assert_eq!(value, Value::BulkString("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_parse_array() {
+        let mut reader = Cursor::new(b"*2\r\n$5\r\nHello\r\n$5\r\nWorld\r\n");
+        let value = parse(&mut reader).unwrap();
+        assert_eq!(
+            value,
+            Value::Array(vec![
+                Value::BulkString("Hello".to_string()),
+                Value::BulkString("World".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_serialise_simple_string() {
+        let mut writer = Vec::new();
+        let value = Value::SimpleString("Hello".to_string());
+        serialise(&mut writer, &value).unwrap();
+        assert_eq!(writer, b"+Hello\r\n");
+    }
+
+    #[test]
+    fn test_serialise_error() {
+        let mut writer = Vec::new();
+        let value = Value::Error("Hello".to_string());
+        serialise(&mut writer, &value).unwrap();
+        assert_eq!(writer, b"-Hello\r\n");
+    }
+
+    #[test]
+    fn test_serialise_bulk_string() {
+        let mut writer = Vec::new();
+        let value = Value::BulkString("Hello".to_string());
+        serialise(&mut writer, &value).unwrap();
+        assert_eq!(writer, b"$5\r\nHello\r\n");
+    }
+
+    #[test]
+    fn test_serialise_array() {
+        let mut writer = Vec::new();
+        let value = Value::Array(vec![
+            Value::SimpleString("Hello".to_string()),
+            Value::BulkString("World".to_string()),
+        ]);
+        serialise(&mut writer, &value).unwrap();
+        assert_eq!(writer, b"*2\r\n+Hello\r\n$5\r\nWorld\r\n");
+    }
+
+    #[test]
+    fn test_serialise_null() {
+        let mut writer = Vec::new();
+        let value = Value::Null;
+        serialise(&mut writer, &value).unwrap();
+        assert_eq!(writer, b"_\r\n");
+    }
 }
