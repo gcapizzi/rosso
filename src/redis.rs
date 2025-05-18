@@ -3,6 +3,8 @@ pub enum Result {
     Null,
     Ok,
     BulkString(std::string::String),
+    Integer(i64),
+    Error(std::string::String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -16,4 +18,5 @@ pub enum Command {
     Get { key: Key },
     Set { key: Key, value: String },
     Client,
+    Incr { key: Key },
 }

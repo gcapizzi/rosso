@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::collections::HashMap;
 
 use crate::redis;
@@ -28,6 +29,22 @@ impl Redis {
                 redis::Result::Ok
             }
             redis::Command::Client => redis::Result::Ok,
+            redis::Command::Incr { key: redis::Key(k) } => self
+                .incr(k)
+                .map(|v| redis::Result::Integer(v))
+                .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
+        }
+    }
+
+    fn incr(&mut self, key: String) -> Result<i64> {
+        if let Some(value) = self.map.get(&key) {
+            let mut new_value: i64 = value.parse()?;
+            new_value += 1;
+            self.map.insert(key, new_value.to_string());
+            Ok(new_value)
+        } else {
+            self.map.insert(key, "1".to_string());
+            Ok(1)
         }
     }
 }
@@ -70,5 +87,20 @@ mod tests {
 
         let result = redis.call(redis::Command::Client);
         assert_eq!(result, redis::Result::Ok);
+    }
+
+    #[test]
+    fn test_incr() {
+        let mut redis = Redis::new();
+
+        let result = redis.call(redis::Command::Incr {
+            key: Key("counter".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(1));
+
+        let result = redis.call(redis::Command::Incr {
+            key: Key("counter".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(2));
     }
 }

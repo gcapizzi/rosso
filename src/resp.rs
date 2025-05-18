@@ -7,6 +7,7 @@ pub enum Value {
     Array(Vec<Value>),
     Error(String),
     Null,
+    Integer(i64),
 }
 
 pub fn parse<R: BufRead>(reader: &mut R) -> std::io::Result<Value> {
@@ -57,7 +58,7 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
         }
         Value::Error(e) => {
             writer.write_all(b"-")?;
-            writer.write_all(e.to_string().as_bytes())?;
+            writer.write_all(e.as_bytes())?;
             writer.write_all(b"\r\n")?;
         }
         Value::BulkString(s) => {
@@ -77,6 +78,11 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
         }
         Value::Null => {
             writer.write_all(b"_\r\n")?;
+        }
+        Value::Integer(i) => {
+            writer.write_all(b":")?;
+            writer.write_all(i.to_string().as_bytes())?;
+            writer.write_all(b"\r\n")?;
         }
     }
     Ok(())

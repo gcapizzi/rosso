@@ -17,6 +17,10 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
             let value = consume_string("set", &mut cmd)?;
             Ok(redis::Command::Set { key, value })
         }
+        "INCR" => {
+            let key = consume_key("incr", &mut cmd)?;
+            Ok(redis::Command::Incr { key })
+        }
         "CLIENT" => Ok(redis::Command::Client),
         _ => {
             return Err(anyhow!("unknown command '{}'", cmd_name));
@@ -63,6 +67,8 @@ pub fn serialise_result(result: redis::Result) -> resp::Value {
         redis::Result::BulkString(s) => resp::Value::BulkString(s),
         redis::Result::Null => resp::Value::Null,
         redis::Result::Ok => resp::Value::SimpleString("OK".to_string()),
+        redis::Result::Integer(n) => resp::Value::Integer(n),
+        redis::Result::Error(e) => resp::Value::Error(e),
     }
 }
 
@@ -109,6 +115,21 @@ mod tests {
         let command = resp::Value::Array(vec![resp::Value::BulkString("CLIENT".to_string())]);
         let parsed_command = parse_command(command).unwrap();
         assert_eq!(parsed_command, redis::Command::Client);
+    }
+
+    #[test]
+    fn test_parse_command_incr() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("INCR".to_string()),
+            resp::Value::BulkString("key".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Incr {
+                key: Key("key".to_string())
+            }
+        );
     }
 
     #[test]
