@@ -20,3 +20,7 @@ pub enum Command {
     Client,
     Incr { key: Key },
 }
+
+pub trait Engine {
+    fn call(&self, command: Command) -> Result;
+}

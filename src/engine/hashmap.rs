@@ -12,8 +12,10 @@ impl HashMap {
             map: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
+}
 
-    pub fn call(&self, command: redis::Command) -> redis::Result {
+impl redis::Engine for HashMap {
+    fn call(&self, command: redis::Command) -> redis::Result {
         let mut map;
         if let Ok(m) = self.map.lock() {
             map = m;
@@ -56,6 +58,7 @@ fn incr(map: &mut std::collections::HashMap<String, String>, key: String) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::redis::Engine;
     use crate::redis::Key;
     use crate::redis::String;
 

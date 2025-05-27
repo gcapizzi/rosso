@@ -22,7 +22,7 @@ async fn main(ex: &LocalExecutor<'_>) -> Result<()> {
     }
 }
 
-async fn handle_client(engine: Arc<rosso::engine::HashMap>, stream: TcpStream) -> Result<()> {
+async fn handle_client<E: rosso::redis::Engine>(engine: Arc<E>, stream: TcpStream) -> Result<()> {
     println!("Client connected: {}", stream.peer_addr()?);
     let mut reader = BufReader::new(stream.clone());
     let mut writer = BufWriter::new(stream.clone());
@@ -38,7 +38,10 @@ async fn handle_client(engine: Arc<rosso::engine::HashMap>, stream: TcpStream) -
     Ok(())
 }
 
-fn run_cmd(engine: &rosso::engine::HashMap, command: rosso::resp::Value) -> rosso::resp::Value {
+fn run_cmd<E: rosso::redis::Engine>(
+    engine: &Arc<E>,
+    command: rosso::resp::Value,
+) -> rosso::resp::Value {
     rosso::resp_cmd::parse_command(command)
         .map(|cmd| engine.call(cmd))
         .map(|res| rosso::resp_cmd::serialise_result(res))
