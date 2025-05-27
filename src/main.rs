@@ -11,7 +11,7 @@ use anyhow::Result;
 
 #[apply(main!)]
 async fn main(ex: &LocalExecutor<'_>) -> Result<()> {
-    let engine = Arc::new(rosso::engine::HashMap::new());
+    let engine = Arc::new(rosso::engine::MutexedHashMap::new());
 
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
     loop {

@@ -1,3 +1,3 @@
-pub mod hashmap;
+pub mod stdlib;
 
-pub use hashmap::HashMap;
+pub use stdlib::MutexedHashMap;
