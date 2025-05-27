@@ -1,16 +1,15 @@
 use anyhow::Result;
-use std::{collections::HashMap, sync::Mutex};
 
 use crate::redis;
 
-pub struct Redis {
-    map: Mutex<HashMap<String, String>>,
+pub struct HashMap {
+    map: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
-impl Redis {
+impl HashMap {
     pub fn new() -> Self {
-        Redis {
-            map: Mutex::new(HashMap::new()),
+        HashMap {
+            map: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -41,7 +40,8 @@ impl Redis {
         }
     }
 }
-fn incr(map: &mut HashMap<String, String>, key: String) -> Result<i64> {
+
+fn incr(map: &mut std::collections::HashMap<String, String>, key: String) -> Result<i64> {
     if let Some(value) = map.get(&key) {
         let mut new_value: i64 = value.parse()?;
         new_value += 1;
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn test_set_and_get() {
-        let redis = Redis::new();
+        let redis = HashMap::new();
 
         let result = redis.call(redis::Command::Set {
             key: Key("key".to_string()),
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_key() {
-        let redis = Redis::new();
+        let redis = HashMap::new();
 
         let result = redis.call(redis::Command::Get {
             key: Key("nonexistent".to_string()),
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_client() {
-        let redis = Redis::new();
+        let redis = HashMap::new();
 
         let result = redis.call(redis::Command::Client);
         assert_eq!(result, redis::Result::Ok);
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_incr() {
-        let redis = Redis::new();
+        let redis = HashMap::new();
 
         let result = redis.call(redis::Command::Incr {
             key: Key("counter".to_string()),

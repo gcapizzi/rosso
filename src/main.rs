@@ -11,18 +11,18 @@ use anyhow::Result;
 
 #[apply(main!)]
 async fn main(ex: &LocalExecutor<'_>) -> Result<()> {
-    let redis = Arc::new(rosso::hashmap::Redis::new());
+    let engine = Arc::new(rosso::engine::HashMap::new());
 
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
     loop {
         let (socket, _) = listener.accept().await?;
-        let clone = redis.clone();
+        let clone = engine.clone();
         ex.spawn(async move { handle_client(clone, socket).await.unwrap() })
             .detach();
     }
 }
 
-async fn handle_client(redis: Arc<rosso::hashmap::Redis>, stream: TcpStream) -> Result<()> {
+async fn handle_client(engine: Arc<rosso::engine::HashMap>, stream: TcpStream) -> Result<()> {
     println!("Client connected: {}", stream.peer_addr()?);
     let mut reader = BufReader::new(stream.clone());
     let mut writer = BufWriter::new(stream.clone());
@@ -30,7 +30,7 @@ async fn handle_client(redis: Arc<rosso::hashmap::Redis>, stream: TcpStream) -> 
     while has_data_left(&mut reader).await? {
         let command = rosso::resp::parse(&mut reader).await?;
         println!("Received command: {:?}", command);
-        let reply = run_cmd(&redis, command);
+        let reply = run_cmd(&engine, command);
         rosso::resp::serialise(&mut writer, &reply).await?;
         writer.flush().await?;
     }
@@ -38,9 +38,9 @@ async fn handle_client(redis: Arc<rosso::hashmap::Redis>, stream: TcpStream) -> 
     Ok(())
 }
 
-fn run_cmd(redis: &rosso::hashmap::Redis, command: rosso::resp::Value) -> rosso::resp::Value {
+fn run_cmd(engine: &rosso::engine::HashMap, command: rosso::resp::Value) -> rosso::resp::Value {
     rosso::resp_cmd::parse_command(command)
-        .map(|cmd| redis.call(cmd))
+        .map(|cmd| engine.call(cmd))
         .map(|res| rosso::resp_cmd::serialise_result(res))
         .unwrap_or_else(|e| rosso::resp::Value::Error(format!("ERR {}", e)))
 }
