@@ -1,38 +1,54 @@
-use std::{
-    io::{BufRead, BufReader, BufWriter, Write},
-    net::{TcpListener, TcpStream},
+use async_net::{TcpListener, TcpStream};
+use macro_rules_attribute::apply;
+use smol::{
+    LocalExecutor,
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
 };
+use smol_macros::main;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 
-fn main() -> Result<()> {
-    let mut redis: rosso::hashmap::Redis = rosso::hashmap::Redis::new();
-    let listener = TcpListener::bind("127.0.0.1:6379")?;
-    for stream in listener.incoming() {
-        handle_client(&mut redis, stream?)?;
+#[apply(main!)]
+async fn main(ex: &LocalExecutor<'_>) -> Result<()> {
+    let redis = Arc::new(Mutex::new(rosso::hashmap::Redis::new()));
+
+    let listener = TcpListener::bind("127.0.0.1:6379").await?;
+    loop {
+        let (socket, _) = listener.accept().await?;
+        let clone = redis.clone();
+        ex.spawn(async move { handle_client(clone, socket).await.unwrap() })
+            .detach();
     }
+}
+
+async fn handle_client(redis: Arc<Mutex<rosso::hashmap::Redis>>, stream: TcpStream) -> Result<()> {
+    println!("Client connected: {}", stream.peer_addr()?);
+    let mut reader = BufReader::new(stream.clone());
+    let mut writer = BufWriter::new(stream.clone());
+
+    while has_data_left(&mut reader).await? {
+        let command = rosso::resp::parse(&mut reader).await?;
+        println!("Received command: {:?}", command);
+        let reply = run_cmd(&redis, command);
+        rosso::resp::serialise(&mut writer, &reply).await?;
+        writer.flush().await?;
+    }
+    println!("Client disconnected");
     Ok(())
 }
 
-fn handle_client(redis: &mut rosso::hashmap::Redis, stream: TcpStream) -> Result<()> {
-    let mut reader = BufReader::new(&stream);
-    let mut writer = BufWriter::new(&stream);
-    while has_data_left(&mut reader)? {
-        let command = rosso::resp::parse(&mut reader)?;
-        let reply = run_cmd(redis, command);
-        rosso::resp::serialise(&mut writer, &reply)?;
-        writer.flush()?;
-    }
-    Ok(())
-}
-
-fn run_cmd(redis: &mut rosso::hashmap::Redis, command: rosso::resp::Value) -> rosso::resp::Value {
+fn run_cmd(
+    redis: &Mutex<rosso::hashmap::Redis>,
+    command: rosso::resp::Value,
+) -> rosso::resp::Value {
+    let mut redis = redis.lock().unwrap();
     rosso::resp_cmd::parse_command(command)
         .map(|cmd| redis.call(cmd))
         .map(|res| rosso::resp_cmd::serialise_result(res))
         .unwrap_or_else(|e| rosso::resp::Value::Error(format!("ERR {}", e)))
 }
 
-fn has_data_left<R: BufRead>(reader: &mut R) -> std::io::Result<bool> {
-    reader.fill_buf().map(|b| !b.is_empty())
+async fn has_data_left<R: AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<bool> {
+    reader.fill_buf().await.map(|b| !b.is_empty())
 }

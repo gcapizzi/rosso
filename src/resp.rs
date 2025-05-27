@@ -1,4 +1,5 @@
-use std::{io::BufRead, io::Write};
+use futures::io::{AsyncBufRead, AsyncWrite};
+use futures_lite::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -10,19 +11,19 @@ pub enum Value {
     Integer(i64),
 }
 
-pub fn parse<R: BufRead>(reader: &mut R) -> std::io::Result<Value> {
+pub async fn parse<R: AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<Value> {
     let mut prefix = [0];
-    reader.read_exact(&mut prefix)?;
+    reader.read_exact(&mut prefix).await?;
     if &prefix == b"*" {
-        let len = parse_length(reader)?;
+        let len = parse_length(reader).await?;
         let mut values = Vec::with_capacity(len);
         for _ in 0..len {
-            values.push(parse(reader)?);
+            values.push(Box::pin(parse(reader)).await?);
         }
         Ok(Value::Array(values))
     } else if &prefix == b"$" {
-        let len = parse_length(reader)?;
-        let string = parse_string(reader, len)?;
+        let len = parse_length(reader).await?;
+        let string = parse_string(reader, len).await?;
         Ok(Value::BulkString(string))
     } else {
         Err(std::io::Error::new(
@@ -32,57 +33,63 @@ pub fn parse<R: BufRead>(reader: &mut R) -> std::io::Result<Value> {
     }
 }
 
-fn parse_length<R: BufRead>(reader: &mut R) -> std::io::Result<usize> {
+async fn parse_length<R: AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<usize> {
     let mut len_str = String::new();
-    reader.read_line(&mut len_str)?;
+    reader.read_line(&mut len_str).await?;
     len_str.truncate(len_str.len() - 2);
     len_str
         .parse()
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid length"))
 }
 
-fn parse_string<R: BufRead>(reader: &mut R, length: usize) -> std::io::Result<String> {
+async fn parse_string<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    length: usize,
+) -> std::io::Result<String> {
     let mut string = vec![0; length];
-    reader.read_exact(&mut string)?;
-    reader.read_exact(&mut [0; 2])?;
+    reader.read_exact(&mut string).await?;
+    reader.read_exact(&mut [0; 2]).await?;
     String::from_utf8(string)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid bulk string"))
 }
 
-pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()> {
+pub async fn serialise<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    value: &Value,
+) -> std::io::Result<()> {
     match value {
         Value::SimpleString(s) => {
-            writer.write_all(b"+")?;
-            writer.write_all(s.as_bytes())?;
-            writer.write_all(b"\r\n")?;
+            writer.write_all(b"+").await?;
+            writer.write_all(s.as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
         }
         Value::Error(e) => {
-            writer.write_all(b"-")?;
-            writer.write_all(e.as_bytes())?;
-            writer.write_all(b"\r\n")?;
+            writer.write_all(b"-").await?;
+            writer.write_all(e.as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
         }
         Value::BulkString(s) => {
-            writer.write_all(b"$")?;
-            writer.write_all(s.len().to_string().as_bytes())?;
-            writer.write_all(b"\r\n")?;
-            writer.write_all(s.as_bytes())?;
-            writer.write_all(b"\r\n")?;
+            writer.write_all(b"$").await?;
+            writer.write_all(s.len().to_string().as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
+            writer.write_all(s.as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
         }
         Value::Array(a) => {
-            writer.write_all(b"*")?;
-            writer.write_all(a.len().to_string().as_bytes())?;
-            writer.write_all(b"\r\n")?;
+            writer.write_all(b"*").await?;
+            writer.write_all(a.len().to_string().as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
             for item in a {
-                serialise(writer, item)?;
+                Box::pin(serialise(writer, item)).await?;
             }
         }
         Value::Null => {
-            writer.write_all(b"_\r\n")?;
+            writer.write_all(b"_\r\n").await?;
         }
         Value::Integer(i) => {
-            writer.write_all(b":")?;
-            writer.write_all(i.to_string().as_bytes())?;
-            writer.write_all(b"\r\n")?;
+            writer.write_all(b":").await?;
+            writer.write_all(i.to_string().as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
         }
     }
     Ok(())
@@ -91,19 +98,23 @@ pub fn serialise<W: Write>(writer: &mut W, value: &Value) -> std::io::Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use futures_lite::io::Cursor;
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
 
-    #[test]
-    fn test_parse_bulk_string() {
-        let mut reader = Cursor::new(b"$5\r\nHello\r\n");
-        let value = parse(&mut reader).unwrap();
+    #[apply(test!)]
+    async fn test_parse_bulk_string() {
+        let mut bytes = b"$5\r\nHello\r\n".to_vec();
+        let mut reader = Cursor::new(&mut bytes);
+        let value = parse(&mut reader).await.unwrap();
         assert_eq!(value, Value::BulkString("Hello".to_string()));
     }
 
-    #[test]
-    fn test_parse_array() {
-        let mut reader = Cursor::new(b"*2\r\n$5\r\nHello\r\n$5\r\nWorld\r\n");
-        let value = parse(&mut reader).unwrap();
+    #[apply(test!)]
+    async fn test_parse_array() {
+        let mut bytes = b"*2\r\n$5\r\nHello\r\n$5\r\nWorld\r\n".to_vec();
+        let mut reader = Cursor::new(&mut bytes);
+        let value = parse(&mut reader).await.unwrap();
         assert_eq!(
             value,
             Value::Array(vec![
@@ -113,46 +124,46 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_serialise_simple_string() {
+    #[apply(test!)]
+    async fn test_serialise_simple_string() {
         let mut writer = Vec::new();
         let value = Value::SimpleString("Hello".to_string());
-        serialise(&mut writer, &value).unwrap();
+        serialise(&mut writer, &value).await.unwrap();
         assert_eq!(writer, b"+Hello\r\n");
     }
 
-    #[test]
-    fn test_serialise_error() {
+    #[apply(test!)]
+    async fn test_serialise_error() {
         let mut writer = Vec::new();
         let value = Value::Error("Hello".to_string());
-        serialise(&mut writer, &value).unwrap();
+        serialise(&mut writer, &value).await.unwrap();
         assert_eq!(writer, b"-Hello\r\n");
     }
 
-    #[test]
-    fn test_serialise_bulk_string() {
+    #[apply(test!)]
+    async fn test_serialise_bulk_string() {
         let mut writer = Vec::new();
         let value = Value::BulkString("Hello".to_string());
-        serialise(&mut writer, &value).unwrap();
+        serialise(&mut writer, &value).await.unwrap();
         assert_eq!(writer, b"$5\r\nHello\r\n");
     }
 
-    #[test]
-    fn test_serialise_array() {
+    #[apply(test!)]
+    async fn test_serialise_array() {
         let mut writer = Vec::new();
         let value = Value::Array(vec![
             Value::SimpleString("Hello".to_string()),
             Value::BulkString("World".to_string()),
         ]);
-        serialise(&mut writer, &value).unwrap();
+        serialise(&mut writer, &value).await.unwrap();
         assert_eq!(writer, b"*2\r\n+Hello\r\n$5\r\nWorld\r\n");
     }
 
-    #[test]
-    fn test_serialise_null() {
+    #[apply(test!)]
+    async fn test_serialise_null() {
         let mut writer = Vec::new();
         let value = Value::Null;
-        serialise(&mut writer, &value).unwrap();
+        serialise(&mut writer, &value).await.unwrap();
         assert_eq!(writer, b"_\r\n");
     }
 }
