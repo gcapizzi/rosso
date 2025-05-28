@@ -11,12 +11,12 @@ use anyhow::Result;
 
 #[apply(main!)]
 async fn main(ex: &LocalExecutor<'_>) -> Result<()> {
-    let engine = Arc::new(rosso::engine::MutexedHashMap::new());
-
+    let engine = rosso::engine::ConcurrentHashMap::new();
+    let engine_pointer = Arc::new(engine);
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
     loop {
         let (socket, _) = listener.accept().await?;
-        let clone = engine.clone();
+        let clone = engine_pointer.clone();
         ex.spawn(async move { handle_client(clone, socket).await.unwrap() })
             .detach();
     }
