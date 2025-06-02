@@ -14,11 +14,22 @@ pub struct Key(pub std::string::String);
 pub struct String(pub std::string::String);
 
 #[derive(Debug, PartialEq)]
+pub struct Integer(pub i64);
+
+#[derive(Debug, PartialEq)]
 pub enum Command {
-    Get { key: Key },
-    Set { key: Key, value: String },
+    Get {
+        key: Key,
+    },
+    Set {
+        key: Key,
+        value: String,
+        ex: Option<Integer>,
+    },
     Client,
-    Incr { key: Key },
+    Incr {
+        key: Key,
+    },
 }
 
 pub trait Engine {

@@ -13,6 +13,24 @@ fn test_strings() -> Result<()> {
 }
 
 #[test]
+fn test_expiration() -> Result<()> {
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    let mut con = client.get_connection()?;
+    redis::cmd("SET")
+        .arg("my_expiring_key")
+        .arg(42)
+        .arg("EX")
+        .arg(1)
+        .exec(&mut con)?;
+    let value: i32 = redis::cmd("GET").arg("my_expiring_key").query(&mut con)?;
+    assert_eq!(42, value);
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let value: Option<i32> = redis::cmd("GET").arg("my_expiring_key").query(&mut con)?;
+    assert_eq!(None, value);
+    Ok(())
+}
+
+#[test]
 fn test_parallel_connections() -> Result<()> {
     let client = redis::Client::open("redis://127.0.0.1/")?;
     let mut con = client.get_connection()?;

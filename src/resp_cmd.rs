@@ -15,7 +15,16 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
         "SET" => {
             let key = consume_key("set", &mut cmd)?;
             let value = consume_string("set", &mut cmd)?;
-            Ok(redis::Command::Set { key, value })
+            let mut ex = None;
+            if let Some(kw) = cmd.pop_front() {
+                if kw == "EX" {
+                    ex = Some(consume_integer("set", &mut cmd)?);
+                } else {
+                    return Err(anyhow!("unknown argument '{}' for SET command", kw));
+                }
+            }
+
+            Ok(redis::Command::Set { key, value, ex })
         }
         "INCR" => {
             let key = consume_key("incr", &mut cmd)?;
@@ -41,6 +50,15 @@ fn consume_key(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::Key
 
 fn consume_string(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::String> {
     consume_arg(cmd_name, args).map(|v| redis::String(v))
+}
+
+fn consume_integer(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::Integer> {
+    consume_arg(cmd_name, args)
+        .and_then(|v| {
+            v.parse()
+                .map_err(|_| anyhow!("invalid EX value for '{}' command: '{}'", cmd_name, v))
+        })
+        .map(|v| redis::Integer(v))
 }
 
 fn to_vec_of_strings(value: resp::Value) -> Result<VecDeque<String>> {
@@ -75,8 +93,7 @@ pub fn serialise_result(result: redis::Result) -> resp::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::redis::Key;
-    use crate::redis::String;
+    use crate::redis::*;
 
     #[test]
     fn test_parse_command_get() {
@@ -105,7 +122,28 @@ mod tests {
             parsed_command,
             redis::Command::Set {
                 key: Key("key".to_string()),
-                value: String("value".to_string())
+                value: String("value".to_string()),
+                ex: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_ex() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("EX".to_string()),
+            resp::Value::BulkString("3".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                ex: Some(Integer(3)),
             }
         );
     }
