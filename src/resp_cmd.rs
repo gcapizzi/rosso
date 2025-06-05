@@ -5,31 +5,12 @@ use crate::resp;
 use anyhow::{Result, anyhow};
 
 pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
-    let mut cmd = to_vec_of_strings(command)?;
+    let mut cmd = to_vec(command)?;
     let cmd_name = cmd.pop_front().ok_or(anyhow!("command is empty"))?;
     match cmd_name.as_str() {
-        "GET" => {
-            let key = consume_key("get", &mut cmd)?;
-            Ok(redis::Command::Get { key })
-        }
-        "SET" => {
-            let key = consume_key("set", &mut cmd)?;
-            let value = consume_string("set", &mut cmd)?;
-            let mut ex = None;
-            if let Some(kw) = cmd.pop_front() {
-                if kw == "EX" {
-                    ex = Some(consume_integer("set", &mut cmd)?);
-                } else {
-                    return Err(anyhow!("unknown argument '{}' for SET command", kw));
-                }
-            }
-
-            Ok(redis::Command::Set { key, value, ex })
-        }
-        "INCR" => {
-            let key = consume_key("incr", &mut cmd)?;
-            Ok(redis::Command::Incr { key })
-        }
+        "GET" => get(&mut cmd),
+        "SET" => set(&mut cmd),
+        "INCR" => incr(&mut cmd),
         "CLIENT" => Ok(redis::Command::Client),
         _ => {
             return Err(anyhow!("unknown command '{}'", cmd_name));
@@ -37,31 +18,52 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
     }
 }
 
-fn consume_arg(cmd_name: &str, args: &mut VecDeque<String>) -> Result<String> {
-    args.pop_front().ok_or(anyhow!(
-        "wrong number of arguments for '{}' command",
-        cmd_name
-    ))
+fn get(args: &mut VecDeque<String>) -> Result<redis::Command> {
+    let key = key(args)?;
+    Ok(redis::Command::Get { key })
 }
 
-fn consume_key(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::Key> {
-    consume_arg(cmd_name, args).map(|v| redis::Key(v))
+fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
+    let key = key(args)?;
+    let value = string(args)?;
+    let mut ex = None;
+    while let Some(arg) = args.pop_front() {
+        match arg.as_str() {
+            "EX" => {
+                ex = Some(integer(stream)?);
+            }
+            _ => {
+                return Err(anyhow!("unexpected argument '{}'", arg));
+            }
+        }
+    }
+    Ok(redis::Command::Set { key, value, ex })
 }
 
-fn consume_string(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::String> {
-    consume_arg(cmd_name, args).map(|v| redis::String(v))
+fn incr(args: &mut VecDeque<String>) -> Result<redis::Command> {
+    let key = key(args)?;
+    Ok(redis::Command::Incr { key })
 }
 
-fn consume_integer(cmd_name: &str, args: &mut VecDeque<String>) -> Result<redis::Integer> {
-    consume_arg(cmd_name, args)
-        .and_then(|v| {
-            v.parse()
-                .map_err(|_| anyhow!("invalid EX value for '{}' command: '{}'", cmd_name, v))
-        })
+fn arg(args: &mut VecDeque<String>) -> Result<String> {
+    args.pop_front().ok_or(anyhow!("wrong number of arguments"))
+}
+
+fn key(args: &mut VecDeque<String>) -> Result<redis::Key> {
+    arg(args).map(|v| redis::Key(v))
+}
+
+fn string(args: &mut VecDeque<String>) -> Result<redis::String> {
+    arg(args).map(|v| redis::String(v))
+}
+
+fn integer(args: &mut VecDeque<String>) -> Result<redis::Integer> {
+    arg(args)
+        .and_then(|v| v.parse().map_err(|_| anyhow!("not an integer: {}", v)))
         .map(|v| redis::Integer(v))
 }
 
-fn to_vec_of_strings(value: resp::Value) -> Result<VecDeque<String>> {
+fn to_vec(value: resp::Value) -> Result<VecDeque<String>> {
     if let resp::Value::Array(values) = value {
         values
             .into_iter()
@@ -188,7 +190,7 @@ mod tests {
         assert!(parsed_command.is_err());
         assert_eq!(
             parsed_command.unwrap_err().to_string(),
-            "wrong number of arguments for 'get' command"
+            "wrong number of arguments"
         );
     }
 
