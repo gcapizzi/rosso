@@ -17,6 +17,12 @@ pub struct String(pub std::string::String);
 pub struct Integer(pub i64);
 
 #[derive(Debug, PartialEq)]
+pub enum Expiration {
+    Seconds(Integer),
+    Milliseconds(Integer),
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Command {
     Get {
         key: Key,
@@ -24,7 +30,7 @@ pub enum Command {
     Set {
         key: Key,
         value: String,
-        ex: Option<Integer>,
+        expiration: Option<Expiration>,
     },
     Client,
     Incr {

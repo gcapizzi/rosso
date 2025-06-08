@@ -26,18 +26,25 @@ fn get(args: &mut VecDeque<String>) -> Result<redis::Command> {
 fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let key = key(args)?;
     let value = string(args)?;
-    let mut ex = None;
+    let mut expiration = None;
     while let Some(arg) = args.pop_front() {
         match arg.as_str() {
             "EX" => {
-                ex = Some(integer(stream)?);
+                expiration = Some(redis::Expiration::Seconds(integer(args)?));
+            }
+            "PX" => {
+                expiration = Some(redis::Expiration::Milliseconds(integer(args)?));
             }
             _ => {
                 return Err(anyhow!("unexpected argument '{}'", arg));
             }
         }
     }
-    Ok(redis::Command::Set { key, value, ex })
+    Ok(redis::Command::Set {
+        key,
+        value,
+        expiration,
+    })
 }
 
 fn incr(args: &mut VecDeque<String>) -> Result<redis::Command> {
@@ -125,7 +132,7 @@ mod tests {
             redis::Command::Set {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
-                ex: None,
+                expiration: None,
             }
         );
     }
@@ -145,7 +152,27 @@ mod tests {
             redis::Command::Set {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
-                ex: Some(Integer(3)),
+                expiration: Some(Expiration::Seconds(Integer(3))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_px() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("PX".to_string()),
+            resp::Value::BulkString("300".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                expiration: Some(Expiration::Milliseconds(Integer(300))),
             }
         );
     }
