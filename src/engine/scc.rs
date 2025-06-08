@@ -67,18 +67,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 value: redis::String(v),
                 expiration,
             } => {
-                let ex = expiration.map(|e| match e {
-                    redis::Expiration::Seconds(redis::Integer(secs)) => {
-                        self.clock.now() + std::time::Duration::from_secs(secs as u64)
-                    }
-                    redis::Expiration::Milliseconds(redis::Integer(millis)) => {
-                        self.clock.now() + std::time::Duration::from_millis(millis as u64)
-                    }
-                    redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => {
-                        std::time::SystemTime::UNIX_EPOCH
-                            + std::time::Duration::from_secs(secs as u64)
-                    }
-                });
+                let ex = expiration.map(|e| self.expiration_time(e));
                 self.set(k, v, ex)
                     .map(|_| redis::Result::Ok)
                     .unwrap_or_else(|e| redis::Result::Error(e.to_string()))
@@ -118,6 +107,23 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
             self.map
                 .upsert(key, Expirable::new_perpetual("1".to_string()));
             Ok(1)
+        }
+    }
+
+    fn expiration_time(&self, expiration: redis::Expiration) -> std::time::SystemTime {
+        match expiration {
+            redis::Expiration::Seconds(redis::Integer(secs)) => {
+                self.clock.now() + std::time::Duration::from_secs(secs as u64)
+            }
+            redis::Expiration::Milliseconds(redis::Integer(millis)) => {
+                self.clock.now() + std::time::Duration::from_millis(millis as u64)
+            }
+            redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => {
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64)
+            }
+            redis::Expiration::UnixTimeMilliseconds(redis::Integer(millis)) => {
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis as u64)
+            }
         }
     }
 }
@@ -239,6 +245,29 @@ mod tests {
         assert_eq!(result, redis::Result::Ok);
 
         clock.set(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1749371596));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_expiration_unix_time_milliseconds() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: Some(redis::Expiration::UnixTimeMilliseconds(redis::Integer(
+                1749371595123,
+            ))),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        clock
+            .set(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1749371595124));
 
         let result = redis.call(redis::Command::Get {
             key: redis::Key("key".to_string()),

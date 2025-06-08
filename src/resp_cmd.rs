@@ -38,6 +38,9 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
             "EXAT" => {
                 expiration = Some(redis::Expiration::UnixTimeSeconds(integer(args)?));
             }
+            "PXAT" => {
+                expiration = Some(redis::Expiration::UnixTimeMilliseconds(integer(args)?));
+            }
             _ => {
                 return Err(anyhow!("unexpected argument '{}'", arg));
             }
@@ -196,6 +199,26 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::UnixTimeSeconds(Integer(1749371595))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_pxat() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("PXAT".to_string()),
+            resp::Value::BulkString("1749371595123".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                expiration: Some(Expiration::UnixTimeMilliseconds(Integer(1749371595123))),
             }
         );
     }
