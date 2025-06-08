@@ -5,18 +5,25 @@ fn test_strings() -> Result<()> {
     let client = redis::Client::open("redis://127.0.0.1/")?;
     let mut con = client.get_connection()?;
 
-    let prev_value: Option<String> = redis::cmd("SET")
+    let res: Option<String> = redis::cmd("SET")
         .arg("my_key")
         .arg(42)
+        .arg("NX")
+        .query(&mut con)?;
+    assert_eq!(Some("OK".to_string()), res);
+
+    let prev_value: Option<String> = redis::cmd("SET")
+        .arg("my_key")
+        .arg(43)
         .arg("GET")
         .query(&mut con)?;
-    assert_eq!(None, prev_value);
+    assert_eq!(Some("42".to_string()), prev_value);
 
     let value: i32 = redis::cmd("GET").arg("my_key").query(&mut con)?;
-    assert_eq!(42, value);
+    assert_eq!(43, value);
 
     let new_value: i32 = redis::cmd("INCR").arg("my_key").query(&mut con)?;
-    assert_eq!(43, new_value);
+    assert_eq!(44, new_value);
 
     Ok(())
 }

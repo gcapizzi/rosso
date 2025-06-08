@@ -28,6 +28,7 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let value = string(args)?;
     let mut expiration = None;
     let mut get = false;
+    let mut condition = None;
     while let Some(arg) = args.pop_front() {
         match arg.as_str() {
             "EX" => {
@@ -48,6 +49,12 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
             "GET" => {
                 get = true;
             }
+            "NX" => {
+                condition = Some(redis::SetCondition::IfNotExists);
+            }
+            "XX" => {
+                condition = Some(redis::SetCondition::IfExists);
+            }
             _ => {
                 return Err(anyhow!("unexpected argument '{}'", arg));
             }
@@ -58,6 +65,7 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
         value,
         expiration,
         get,
+        condition,
     })
 }
 
@@ -148,6 +156,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: None,
                 get: false,
+                condition: None,
             }
         );
     }
@@ -169,6 +178,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Seconds(Integer(3))),
                 get: false,
+                condition: None,
             }
         );
     }
@@ -190,6 +200,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Milliseconds(Integer(300))),
                 get: false,
+                condition: None,
             }
         );
     }
@@ -211,6 +222,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: Some(Expiration::UnixTimeSeconds(Integer(1749371595))),
                 get: false,
+                condition: None,
             }
         );
     }
@@ -232,6 +244,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: Some(Expiration::UnixTimeMilliseconds(Integer(1749371595123))),
                 get: false,
+                condition: None,
             }
         );
     }
@@ -252,6 +265,7 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Keep),
                 get: false,
+                condition: None,
             }
         );
     }
@@ -272,6 +286,49 @@ mod tests {
                 value: String("value".to_string()),
                 expiration: None,
                 get: true,
+                condition: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_nx() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("NX".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                expiration: None,
+                get: false,
+                condition: Some(redis::SetCondition::IfNotExists),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_xx() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("XX".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                expiration: None,
+                get: false,
+                condition: Some(redis::SetCondition::IfExists),
             }
         );
     }

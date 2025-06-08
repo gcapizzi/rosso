@@ -26,6 +26,12 @@ pub enum Expiration {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum SetCondition {
+    IfNotExists,
+    IfExists,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Command {
     Get {
         key: Key,
@@ -35,6 +41,7 @@ pub enum Command {
         value: String,
         expiration: Option<Expiration>,
         get: bool,
+        condition: Option<SetCondition>,
     },
     Client,
     Incr {

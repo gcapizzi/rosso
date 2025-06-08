@@ -67,7 +67,16 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 value: redis::String(v),
                 expiration,
                 get,
+                condition,
             } => {
+                if let Some(c) = condition {
+                    if c == redis::SetCondition::IfNotExists && self.map.contains(&k) {
+                        return redis::Result::Null;
+                    }
+                    if c == redis::SetCondition::IfExists && !self.map.contains(&k) {
+                        return redis::Result::Null;
+                    }
+                }
                 let ex = expiration.and_then(|e| self.expiration_time(&k, e));
                 let pv = self.set(k, v, ex);
                 if !get {
@@ -188,6 +197,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: None,
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -217,6 +227,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -238,6 +249,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: Some(redis::Expiration::Milliseconds(redis::Integer(500))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -261,6 +273,7 @@ mod tests {
                 1749371595,
             ))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -284,6 +297,7 @@ mod tests {
                 1749371595123,
             ))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -306,6 +320,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -314,6 +329,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: Some(redis::Expiration::Keep),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -335,6 +351,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -343,6 +360,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: None,
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
@@ -363,6 +381,7 @@ mod tests {
             value: redis::String("value".to_string()),
             expiration: None,
             get: true,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Null);
         let result = redis.call(redis::Command::Set {
@@ -370,6 +389,7 @@ mod tests {
             value: redis::String("new_value".to_string()),
             expiration: Some(redis::Expiration::Seconds(redis::Integer(0))),
             get: true,
+            condition: None,
         });
         assert_eq!(result, redis::Result::BulkString("value".to_string()));
         let result = redis.call(redis::Command::Set {
@@ -377,8 +397,73 @@ mod tests {
             value: redis::String("newer_value".to_string()),
             expiration: None,
             get: true,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_set_if_not_exists() {
+        let redis = ConcurrentHashMap::new();
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: None,
+            get: false,
+            condition: Some(redis::SetCondition::IfNotExists),
+        });
+        assert_eq!(result, redis::Result::Ok);
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("new_value".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(0))),
+            get: false,
+            condition: Some(redis::SetCondition::IfNotExists),
+        });
+        assert_eq!(result, redis::Result::Null);
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::BulkString("value".to_string()));
+    }
+
+    #[test]
+    fn test_set_if_exists() {
+        let redis = ConcurrentHashMap::new();
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: None,
+            get: false,
+            condition: Some(redis::SetCondition::IfExists),
+        });
+        assert_eq!(result, redis::Result::Null);
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Null);
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: None,
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("new_value".to_string()),
+            expiration: None,
+            get: false,
+            condition: Some(redis::SetCondition::IfExists),
+        });
+        assert_eq!(result, redis::Result::Ok);
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::BulkString("new_value".to_string()));
     }
 
     #[test]

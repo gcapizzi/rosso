@@ -33,6 +33,7 @@ impl redis::Engine for MutexedHashMap {
                 value: redis::String(v),
                 expiration: _,
                 get: _,
+                condition: _,
             } => {
                 map.insert(k, v);
                 redis::Result::Ok
@@ -73,6 +74,7 @@ mod tests {
             value: String("value".to_string()),
             expiration: None,
             get: false,
+            condition: None,
         });
         assert_eq!(result, redis::Result::Ok);
 
