@@ -5,11 +5,11 @@ use crate::redis;
 #[derive(Debug)]
 struct Expirable<T> {
     pub value: T,
-    expires_at: Option<std::time::Instant>,
+    expires_at: Option<std::time::SystemTime>,
 }
 
 impl<T> Expirable<T> {
-    pub fn new(value: T, expires_at: Option<std::time::Instant>) -> Self {
+    pub fn new(value: T, expires_at: Option<std::time::SystemTime>) -> Self {
         Expirable { value, expires_at }
     }
 
@@ -17,20 +17,20 @@ impl<T> Expirable<T> {
         Self::new(value, None)
     }
 
-    fn is_expired(&self, now: std::time::Instant) -> bool {
+    fn is_expired(&self, now: std::time::SystemTime) -> bool {
         self.expires_at.map_or(false, |t| t <= now)
     }
 }
 
 pub trait Clock {
-    fn now(&self) -> std::time::Instant;
+    fn now(&self) -> std::time::SystemTime;
 }
 
 pub struct StdClock;
 
 impl Clock for StdClock {
-    fn now(&self) -> std::time::Instant {
-        std::time::Instant::now()
+    fn now(&self) -> std::time::SystemTime {
+        std::time::SystemTime::now()
     }
 }
 
@@ -98,7 +98,7 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
         &self,
         key: String,
         value: String,
-        expires_at: Option<std::time::Instant>,
+        expires_at: Option<std::time::SystemTime>,
     ) -> Result<()> {
         self.map.upsert(key, Expirable::new(value, expires_at));
         Ok(())
@@ -124,18 +124,18 @@ mod tests {
     use crate::redis::Engine;
 
     struct FakeClock {
-        now: std::cell::Cell<std::time::Instant>,
+        now: std::cell::Cell<std::time::SystemTime>,
     }
 
     impl FakeClock {
-        fn new(instant: std::time::Instant) -> Self {
+        fn new(time: std::time::SystemTime) -> Self {
             FakeClock {
-                now: std::cell::Cell::new(instant),
+                now: std::cell::Cell::new(time),
             }
         }
 
         fn new_now() -> Self {
-            FakeClock::new(std::time::Instant::now())
+            FakeClock::new(std::time::SystemTime::now())
         }
 
         fn advance(&self, duration: std::time::Duration) {
@@ -144,7 +144,7 @@ mod tests {
     }
 
     impl Clock for FakeClock {
-        fn now(&self) -> std::time::Instant {
+        fn now(&self) -> std::time::SystemTime {
             self.now.get()
         }
     }
