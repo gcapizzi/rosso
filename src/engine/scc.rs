@@ -67,7 +67,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 value: redis::String(v),
                 expiration,
             } => {
-                let ex = expiration.map(|e| self.expiration_time(e));
+                let ex = expiration.and_then(|e| self.expiration_time(&k, e));
                 self.set(k, v, ex)
                     .map(|_| redis::Result::Ok)
                     .unwrap_or_else(|e| redis::Result::Error(e.to_string()))
@@ -110,20 +110,25 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
         }
     }
 
-    fn expiration_time(&self, expiration: redis::Expiration) -> std::time::SystemTime {
+    fn expiration_time(
+        &self,
+        key: &str,
+        expiration: redis::Expiration,
+    ) -> Option<std::time::SystemTime> {
         match expiration {
             redis::Expiration::Seconds(redis::Integer(secs)) => {
-                self.clock.now() + std::time::Duration::from_secs(secs as u64)
+                Some(self.clock.now() + std::time::Duration::from_secs(secs as u64))
             }
             redis::Expiration::Milliseconds(redis::Integer(millis)) => {
-                self.clock.now() + std::time::Duration::from_millis(millis as u64)
+                Some(self.clock.now() + std::time::Duration::from_millis(millis as u64))
             }
-            redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => {
-                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64)
-            }
-            redis::Expiration::UnixTimeMilliseconds(redis::Integer(millis)) => {
-                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis as u64)
-            }
+            redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => Some(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64),
+            ),
+            redis::Expiration::UnixTimeMilliseconds(redis::Integer(millis)) => Some(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis as u64),
+            ),
+            redis::Expiration::Keep => self.map.get(key).and_then(|e| e.expires_at),
         }
     }
 }
@@ -273,6 +278,60 @@ mod tests {
             key: redis::Key("key".to_string()),
         });
         assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_expiration_keep() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: Some(redis::Expiration::Keep),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        clock.advance(std::time::Duration::from_secs(1));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_expiration_reset() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        clock.advance(std::time::Duration::from_secs(1));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::BulkString("value".to_string()));
     }
 
     #[test]

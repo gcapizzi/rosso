@@ -22,6 +22,7 @@ pub enum Expiration {
     Milliseconds(Integer),
     UnixTimeSeconds(Integer),
     UnixTimeMilliseconds(Integer),
+    Keep,
 }
 
 #[derive(Debug, PartialEq)]
