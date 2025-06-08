@@ -74,6 +74,10 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                     redis::Expiration::Milliseconds(redis::Integer(millis)) => {
                         self.clock.now() + std::time::Duration::from_millis(millis as u64)
                     }
+                    redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => {
+                        std::time::SystemTime::UNIX_EPOCH
+                            + std::time::Duration::from_secs(secs as u64)
+                    }
                 });
                 self.set(k, v, ex)
                     .map(|_| redis::Result::Ok)
@@ -140,6 +144,10 @@ mod tests {
 
         fn advance(&self, duration: std::time::Duration) {
             self.now.set(self.now.get() + duration);
+        }
+
+        fn set(&self, time: std::time::SystemTime) {
+            self.now.set(time);
         }
     }
 
@@ -209,6 +217,28 @@ mod tests {
         assert_eq!(result, redis::Result::Ok);
 
         clock.advance(std::time::Duration::from_millis(500));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Null);
+    }
+
+    #[test]
+    fn test_expiration_unix_time_seconds() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("value".to_string()),
+            expiration: Some(redis::Expiration::UnixTimeSeconds(redis::Integer(
+                1749371595,
+            ))),
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        clock.set(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1749371596));
 
         let result = redis.call(redis::Command::Get {
             key: redis::Key("key".to_string()),

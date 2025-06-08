@@ -20,6 +20,7 @@ pub struct Integer(pub i64);
 pub enum Expiration {
     Seconds(Integer),
     Milliseconds(Integer),
+    UnixTimeSeconds(Integer),
 }
 
 #[derive(Debug, PartialEq)]
