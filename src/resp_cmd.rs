@@ -27,6 +27,7 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let key = key(args)?;
     let value = string(args)?;
     let mut expiration = None;
+    let mut get = false;
     while let Some(arg) = args.pop_front() {
         match arg.as_str() {
             "EX" => {
@@ -44,6 +45,9 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
             "KEEPTTL" => {
                 expiration = Some(redis::Expiration::Keep);
             }
+            "GET" => {
+                get = true;
+            }
             _ => {
                 return Err(anyhow!("unexpected argument '{}'", arg));
             }
@@ -53,6 +57,7 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
         key,
         value,
         expiration,
+        get,
     })
 }
 
@@ -142,6 +147,7 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: None,
+                get: false,
             }
         );
     }
@@ -162,6 +168,7 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Seconds(Integer(3))),
+                get: false,
             }
         );
     }
@@ -182,6 +189,7 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Milliseconds(Integer(300))),
+                get: false,
             }
         );
     }
@@ -202,6 +210,7 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::UnixTimeSeconds(Integer(1749371595))),
+                get: false,
             }
         );
     }
@@ -222,6 +231,7 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::UnixTimeMilliseconds(Integer(1749371595123))),
+                get: false,
             }
         );
     }
@@ -241,6 +251,27 @@ mod tests {
                 key: Key("key".to_string()),
                 value: String("value".to_string()),
                 expiration: Some(Expiration::Keep),
+                get: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_set_with_get() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("SET".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("value".to_string()),
+            resp::Value::BulkString("GET".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Set {
+                key: Key("key".to_string()),
+                value: String("value".to_string()),
+                expiration: None,
+                get: true,
             }
         );
     }

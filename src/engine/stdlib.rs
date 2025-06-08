@@ -32,6 +32,7 @@ impl redis::Engine for MutexedHashMap {
                 key: redis::Key(k),
                 value: redis::String(v),
                 expiration: _,
+                get: _,
             } => {
                 map.insert(k, v);
                 redis::Result::Ok
@@ -71,6 +72,7 @@ mod tests {
             key: Key("key".to_string()),
             value: String("value".to_string()),
             expiration: None,
+            get: false,
         });
         assert_eq!(result, redis::Result::Ok);
 

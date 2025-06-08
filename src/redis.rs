@@ -34,6 +34,7 @@ pub enum Command {
         key: Key,
         value: String,
         expiration: Option<Expiration>,
+        get: bool,
     },
     Client,
     Incr {
