@@ -631,6 +631,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-net",
+ "fastrand",
  "futures",
  "futures-lite",
  "macro_rules_attribute",
