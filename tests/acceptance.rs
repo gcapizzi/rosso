@@ -80,6 +80,54 @@ fn test_concurrent_incrs() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_concurrent_sets_with_nx() -> Result<()> {
+    let key_name = random_key_name();
+    let mut children = vec![];
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    for _ in 0..100 {
+        let s = sender.clone();
+        let k = key_name.clone();
+        children.push(std::thread::spawn(move || {
+            let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+            let mut con = client.clone().get_connection().unwrap();
+            for _ in 0..100 {
+                s.send(
+                    redis::cmd("SET")
+                        .arg(&k)
+                        .arg(42)
+                        .arg("NX")
+                        .query::<Option<String>>(&mut con)
+                        .unwrap(),
+                )
+                .unwrap();
+            }
+        }));
+    }
+
+    let mut count = 0;
+    for _ in 0..10_000 {
+        if let Some(s) = receiver.recv().unwrap() {
+            dbg!(s);
+            count += 1;
+        }
+    }
+
+    for child in children {
+        child.join().unwrap();
+    }
+
+    assert_eq!(1, count);
+
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    let mut con = client.get_connection()?;
+    let value: i32 = redis::cmd("GET").arg(&key_name).query(&mut con)?;
+    assert_eq!(42, value);
+
+    Ok(())
+}
+
 fn random_key_name() -> String {
     std::iter::repeat_with(fastrand::alphanumeric)
         .take(20)
