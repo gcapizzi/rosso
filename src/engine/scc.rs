@@ -90,6 +90,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 .incr(k)
                 .map(|v| redis::Result::Integer(v))
                 .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
+            redis::Command::Ttl { key: redis::Key(k) } => redis::Result::Integer(self.ttl(k)),
         }
     }
 }
@@ -150,6 +151,18 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
             ),
             redis::Expiration::Keep => self.map.get(key).and_then(|e| e.expires_at),
         }
+    }
+
+    fn ttl(&self, key: String) -> i64 {
+        self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
+        self.map
+            .read(&key, |_, e| {
+                e.expires_at.map_or(-1, |t| {
+                    t.duration_since(self.clock.now())
+                        .map_or(-2, |d| d.as_secs() as i64)
+                })
+            })
+            .unwrap_or(-2)
     }
 }
 
@@ -492,5 +505,57 @@ mod tests {
             key: redis::Key("counter".to_string()),
         });
         assert_eq!(result, redis::Result::BulkString("2".to_string()));
+    }
+
+    #[test]
+    fn test_ttl() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("foo".to_string()),
+            value: redis::String("42".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let ttl = redis.call(redis::Command::Ttl {
+            key: redis::Key("foo".to_string()),
+        });
+        assert_eq!(ttl, redis::Result::Integer(1));
+
+        clock.advance(std::time::Duration::from_millis(500));
+        let ttl = redis.call(redis::Command::Ttl {
+            key: redis::Key("foo".to_string()),
+        });
+        assert_eq!(ttl, redis::Result::Integer(0));
+
+        clock.advance(std::time::Duration::from_millis(500));
+        let ttl = redis.call(redis::Command::Ttl {
+            key: redis::Key("foo".to_string()),
+        });
+        assert_eq!(ttl, redis::Result::Integer(-2));
+    }
+
+    #[test]
+    fn test_no_ttl() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("foo".to_string()),
+            value: redis::String("42".to_string()),
+            expiration: None,
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let ttl = redis.call(redis::Command::Ttl {
+            key: redis::Key("foo".to_string()),
+        });
+        assert_eq!(ttl, redis::Result::Integer(-1));
     }
 }

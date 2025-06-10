@@ -44,6 +44,9 @@ fn test_expiration() -> Result<()> {
     let value: i32 = redis::cmd("GET").arg(&key_name).query(&mut con)?;
     assert_eq!(42, value);
 
+    let ttl: i32 = redis::cmd("TTL").arg(&key_name).query(&mut con)?;
+    assert_eq!(0, ttl);
+
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     let value: Option<i32> = redis::cmd("GET").arg(&key_name).query(&mut con)?;

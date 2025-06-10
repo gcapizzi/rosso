@@ -11,6 +11,7 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
         "GET" => get(&mut cmd),
         "SET" => set(&mut cmd),
         "INCR" => incr(&mut cmd),
+        "TTL" => ttl(&mut cmd),
         "CLIENT" => Ok(redis::Command::Client),
         _ => {
             return Err(anyhow!("unknown command '{}'", cmd_name));
@@ -72,6 +73,11 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
 fn incr(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let key = key(args)?;
     Ok(redis::Command::Incr { key })
+}
+
+fn ttl(args: &mut VecDeque<String>) -> Result<redis::Command> {
+    let key = key(args)?;
+    Ok(redis::Command::Ttl { key })
 }
 
 fn arg(args: &mut VecDeque<String>) -> Result<String> {
@@ -350,6 +356,21 @@ mod tests {
         assert_eq!(
             parsed_command,
             redis::Command::Incr {
+                key: Key("key".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_ttl() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("TTL".to_string()),
+            resp::Value::BulkString("key".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Ttl {
                 key: Key("key".to_string())
             }
         );

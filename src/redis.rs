@@ -47,6 +47,9 @@ pub enum Command {
     Incr {
         key: Key,
     },
+    Ttl {
+        key: Key,
+    },
 }
 
 pub trait Engine {
