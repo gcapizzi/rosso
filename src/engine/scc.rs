@@ -104,6 +104,15 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
 }
 
 impl<C: Clock> ConcurrentHashMap<'_, C> {
+    fn get_entry(
+        &self,
+        key: &str,
+    ) -> Option<scc::hash_map::OccupiedEntry<'_, std::string::String, Expirable<std::string::String>>>
+    {
+        self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
+        self.map.get(key)
+    }
+
     fn get(&self, key: String) -> Option<String> {
         self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
         self.map.read(&key, |_, e| e.value.clone())
@@ -121,7 +130,7 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
     }
 
     fn incr(&self, key: String) -> Result<i64> {
-        if let Some(mut expirable) = self.map.get(&key) {
+        if let Some(mut expirable) = self.get_entry(&key) {
             let mut new_value: i64 = expirable.value.parse()?;
             new_value += 1;
             expirable.value = new_value.to_string();
@@ -491,7 +500,22 @@ mod tests {
 
     #[test]
     fn test_incr() {
-        let redis = ConcurrentHashMap::new();
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Incr {
+            key: redis::Key("counter".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(1));
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("counter".to_string()),
+            value: redis::String("42".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(0))),
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
 
         let result = redis.call(redis::Command::Incr {
             key: redis::Key("counter".to_string()),
