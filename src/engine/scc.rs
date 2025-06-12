@@ -20,6 +20,14 @@ impl<T> Expirable<T> {
     fn is_expired(&self, now: std::time::SystemTime) -> bool {
         self.expires_at.map_or(false, |t| t <= now)
     }
+
+    fn value(self, now: std::time::SystemTime) -> Option<T> {
+        if self.is_expired(now) {
+            None
+        } else {
+            Some(self.value)
+        }
+    }
 }
 
 pub trait Clock {
@@ -109,13 +117,7 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
     ) -> Option<String> {
         self.map
             .upsert(key, Expirable::new(value, expires_at))
-            .and_then(|expirable| {
-                if expirable.is_expired(self.clock.now()) {
-                    None
-                } else {
-                    Some(expirable.value)
-                }
-            })
+            .and_then(|e| e.value(self.clock.now()))
     }
 
     fn incr(&self, key: String) -> Result<i64> {
