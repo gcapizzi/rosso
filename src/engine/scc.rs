@@ -608,22 +608,47 @@ mod tests {
 
         let result = redis.call(redis::Command::Append {
             key: redis::Key("key".to_string()),
-            value: redis::String("42".to_string()),
+            value: redis::String("hello".to_string()),
         });
-        assert_eq!(result, redis::Result::Integer(2));
+        assert_eq!(result, redis::Result::Integer(5));
 
         let result = redis.call(redis::Command::Append {
             key: redis::Key("key".to_string()),
-            value: redis::String(" is the answer".to_string()),
+            value: redis::String(", world!".to_string()),
         });
-        assert_eq!(result, redis::Result::Integer(16));
+        assert_eq!(result, redis::Result::Integer(13));
 
         let result = redis.call(redis::Command::Get {
             key: redis::Key("key".to_string()),
         });
         assert_eq!(
             result,
-            redis::Result::BulkString("42 is the answer".to_string())
+            redis::Result::BulkString("hello, world!".to_string())
         );
+    }
+
+    #[test]
+    fn test_append_to_expired_key() {
+        let redis = ConcurrentHashMap::new();
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("bye!".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(0))),
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Append {
+            key: redis::Key("key".to_string()),
+            value: redis::String("hello!".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(6));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::BulkString("hello!".to_string()));
     }
 }
