@@ -50,6 +50,10 @@ pub enum Command {
     Ttl {
         key: Key,
     },
+    Append {
+        key: Key,
+        value: String,
+    },
 }
 
 pub trait Engine {

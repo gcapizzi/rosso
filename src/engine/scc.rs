@@ -99,6 +99,10 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 .map(|v| redis::Result::Integer(v))
                 .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
             redis::Command::Ttl { key: redis::Key(k) } => redis::Result::Integer(self.ttl(k)),
+            redis::Command::Append {
+                key: redis::Key(k),
+                value: redis::String(v),
+            } => redis::Result::Integer(self.append(k, v)),
         }
     }
 }
@@ -176,6 +180,17 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
             })
         })
         .unwrap_or(-2)
+    }
+
+    fn append(&self, key: String, value: String) -> i64 {
+        if let Some(mut e) = self.get_entry(&key) {
+            e.value.push_str(&value);
+            e.value.len() as i64
+        } else {
+            let len = value.len();
+            self.map.upsert(key, Expirable::new_perpetual(value));
+            len as i64
+        }
     }
 }
 
@@ -585,5 +600,30 @@ mod tests {
             key: redis::Key("foo".to_string()),
         });
         assert_eq!(ttl, redis::Result::Integer(-1));
+    }
+
+    #[test]
+    fn test_append() {
+        let redis = ConcurrentHashMap::new();
+
+        let result = redis.call(redis::Command::Append {
+            key: redis::Key("key".to_string()),
+            value: redis::String("42".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(2));
+
+        let result = redis.call(redis::Command::Append {
+            key: redis::Key("key".to_string()),
+            value: redis::String(" is the answer".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(16));
+
+        let result = redis.call(redis::Command::Get {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(
+            result,
+            redis::Result::BulkString("42 is the answer".to_string())
+        );
     }
 }

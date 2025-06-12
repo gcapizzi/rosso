@@ -26,6 +26,12 @@ fn test_strings() -> Result<()> {
     let new_value: i32 = redis::cmd("INCR").arg(&key_name).query(&mut con)?;
     assert_eq!(44, new_value);
 
+    let new_len: usize = redis::cmd("APPEND")
+        .arg(&key_name)
+        .arg(" is the answer")
+        .query(&mut con)?;
+    assert_eq!(16, new_len);
+
     Ok(())
 }
 
