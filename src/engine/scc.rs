@@ -134,10 +134,10 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
     }
 
     fn incr(&self, key: String) -> Result<i64> {
-        if let Some(mut expirable) = self.get_entry(&key) {
-            let mut new_value: i64 = expirable.value.parse()?;
+        if let Some(mut e) = self.get_entry(&key) {
+            let mut new_value: i64 = e.value.parse()?;
             new_value += 1;
-            expirable.value = new_value.to_string();
+            e.value = new_value.to_string();
             Ok(new_value)
         } else {
             self.map
