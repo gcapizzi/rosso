@@ -104,6 +104,11 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
 }
 
 impl<C: Clock> ConcurrentHashMap<'_, C> {
+    fn read_entry<T, R: FnOnce(&Expirable<String>) -> T>(&self, key: &str, reader: R) -> Option<T> {
+        self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
+        self.map.read(key, |_, e| reader(e))
+    }
+
     fn get_entry(
         &self,
         key: &str,
@@ -114,8 +119,7 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
     }
 
     fn get(&self, key: String) -> Option<String> {
-        self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
-        self.map.read(&key, |_, e| e.value.clone())
+        self.read_entry(&key, |e| e.value.to_string())
     }
 
     fn set(
@@ -165,15 +169,13 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
     }
 
     fn ttl(&self, key: String) -> i64 {
-        self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
-        self.map
-            .read(&key, |_, e| {
-                e.expires_at.map_or(-1, |t| {
-                    t.duration_since(self.clock.now())
-                        .map_or(-2, |d| d.as_secs() as i64)
-                })
+        self.read_entry(&key, |e| {
+            e.expires_at.map_or(-1, |t| {
+                t.duration_since(self.clock.now())
+                    .map_or(-2, |d| d.as_secs() as i64)
             })
-            .unwrap_or(-2)
+        })
+        .unwrap_or(-2)
     }
 }
 
