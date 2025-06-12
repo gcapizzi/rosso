@@ -103,6 +103,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 key: redis::Key(k),
                 value: redis::String(v),
             } => redis::Result::Integer(self.append(k, v)),
+            redis::Command::Strlen { key: redis::Key(k) } => redis::Result::Integer(self.strlen(k)),
         }
     }
 }
@@ -191,6 +192,10 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
             self.map.upsert(key, Expirable::new_perpetual(value));
             len as i64
         }
+    }
+
+    fn strlen(&self, key: String) -> i64 {
+        self.read_entry(&key, |e| e.value.len() as i64).unwrap_or(0)
     }
 }
 
@@ -650,5 +655,37 @@ mod tests {
             key: redis::Key("key".to_string()),
         });
         assert_eq!(result, redis::Result::BulkString("hello!".to_string()));
+    }
+
+    #[test]
+    fn test_strlen() {
+        let clock = FakeClock::new_now();
+        let redis = ConcurrentHashMap::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Strlen {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(0));
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("key".to_string()),
+            value: redis::String("hello, world!".to_string()),
+            expiration: Some(redis::Expiration::Seconds(redis::Integer(1))),
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Strlen {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(13));
+
+        clock.advance(std::time::Duration::from_secs(1));
+
+        let result = redis.call(redis::Command::Strlen {
+            key: redis::Key("key".to_string()),
+        });
+        assert_eq!(result, redis::Result::Integer(0));
     }
 }

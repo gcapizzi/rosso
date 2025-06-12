@@ -13,6 +13,9 @@ fn test_strings() -> Result<()> {
         .query(&mut con)?;
     assert_eq!(Some("OK".to_string()), res);
 
+    let len: usize = redis::cmd("STRLEN").arg(&key_name).query(&mut con)?;
+    assert_eq!(2, len);
+
     let prev_value: Option<String> = redis::cmd("SET")
         .arg(&key_name)
         .arg(43)

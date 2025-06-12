@@ -9,3 +9,4 @@ A simple [Redis](https://redis.io) clone, written in [Rust](https://www.rust-lan
 * [`INCR`](https://redis.io/docs/latest/commands/incr/)
 * [`TTL`](https://redis.io/docs/latest/commands/ttl/)
 * [`APPEND`](https://redis.io/docs/latest/commands/append/)
+* [`STRLEN`](https://redis.io/docs/latest/commands/strlen/)

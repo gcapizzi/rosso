@@ -54,6 +54,9 @@ pub enum Command {
         key: Key,
         value: String,
     },
+    Strlen {
+        key: Key,
+    },
 }
 
 pub trait Engine {
