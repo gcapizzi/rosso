@@ -4,9 +4,14 @@ A simple [Redis](https://redis.io) clone, written in [Rust](https://www.rust-lan
 
 ## Supported commands
 
-* [`GET`](https://redis.io/docs/latest/commands/get/)
-* [`SET`](https://redis.io/docs/latest/commands/set/)
-* [`INCR`](https://redis.io/docs/latest/commands/incr/)
+### Generic
+
 * [`TTL`](https://redis.io/docs/latest/commands/ttl/)
+
+### String
+
 * [`APPEND`](https://redis.io/docs/latest/commands/append/)
+* [`GET`](https://redis.io/docs/latest/commands/get/)
+* [`INCR`](https://redis.io/docs/latest/commands/incr/)
+* [`SET`](https://redis.io/docs/latest/commands/set/)
 * [`STRLEN`](https://redis.io/docs/latest/commands/strlen/)
