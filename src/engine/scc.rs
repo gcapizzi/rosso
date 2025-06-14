@@ -1,5 +1,3 @@
-use anyhow::Result;
-
 use crate::redis;
 
 #[derive(Debug)]
@@ -138,7 +136,7 @@ impl<C: Clock> ConcurrentHashMap<'_, C> {
             .and_then(|e| e.value(self.clock.now()))
     }
 
-    fn incr(&self, key: String) -> Result<i64> {
+    fn incr(&self, key: String) -> Result<i64, std::num::ParseIntError> {
         if let Some(mut e) = self.get_entry(&key) {
             let mut new_value: i64 = e.value.parse()?;
             new_value += 1;
