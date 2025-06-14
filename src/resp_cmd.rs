@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow};
 pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
     let mut cmd = to_vec(command)?;
     let cmd_name = cmd.pop_front().ok_or(anyhow!("command is empty"))?;
-    match cmd_name.as_str() {
+    match cmd_name.to_uppercase().as_str() {
         "GET" => get(&mut cmd),
         "SET" => set(&mut cmd),
         "INCR" => incr(&mut cmd),
@@ -33,7 +33,7 @@ fn set(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let mut get = false;
     let mut condition = None;
     while let Some(arg) = args.pop_front() {
-        match arg.as_str() {
+        match arg.to_uppercase().as_str() {
             "EX" => {
                 expiration = Some(redis::Expiration::Seconds(integer(args)?));
             }

@@ -140,6 +140,21 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_case_insenstivity() -> Result<()> {
+    let key_name = random_key_name();
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    let mut con = client.get_connection()?;
+
+    redis::cmd("set")
+        .arg(&key_name)
+        .arg(42)
+        .arg("get")
+        .exec(&mut con)?;
+
+    Ok(())
+}
+
 fn random_key_name() -> String {
     std::iter::repeat_with(fastrand::alphanumeric)
         .take(20)
