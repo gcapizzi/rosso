@@ -1,10 +1,28 @@
 use anyhow::Result;
 
+fn connection() -> Result<redis::Connection> {
+    static ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let addr = ADDR.get_or_init(|| {
+        std::env::var("REDIS_ADDR").unwrap_or_else(|_| {
+            std::thread::spawn(|| rosso::server::start("127.0.0.1:6379").unwrap());
+            "redis://127.0.0.1:6379".to_string()
+        })
+    });
+    let client = redis::Client::open(addr.as_str())?;
+    let connection = client.get_connection()?;
+    Ok(connection)
+}
+
+fn random_key_name() -> String {
+    std::iter::repeat_with(fastrand::alphanumeric)
+        .take(20)
+        .collect()
+}
+
 #[test]
 fn test_strings() -> Result<()> {
     let key_name = random_key_name();
-    let client = redis::Client::open("redis://127.0.0.1/")?;
-    let mut con = client.get_connection()?;
+    let mut con = connection()?;
 
     let res: Option<String> = redis::cmd("SET")
         .arg(&key_name)
@@ -41,8 +59,7 @@ fn test_strings() -> Result<()> {
 #[test]
 fn test_expiration() -> Result<()> {
     let key_name = random_key_name();
-    let client = redis::Client::open("redis://127.0.0.1/")?;
-    let mut con = client.get_connection()?;
+    let mut con = connection()?;
 
     redis::cmd("SET")
         .arg(&key_name)
@@ -67,8 +84,7 @@ fn test_expiration() -> Result<()> {
 #[test]
 fn test_concurrent_incrs() -> Result<()> {
     let key_name = random_key_name();
-    let client = redis::Client::open("redis://127.0.0.1/")?;
-    let mut con = client.get_connection()?;
+    let mut con = connection()?;
 
     redis::cmd("SET").arg(&key_name).arg(42).exec(&mut con)?;
 
@@ -102,8 +118,7 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
         let s = sender.clone();
         let k = key_name.clone();
         children.push(std::thread::spawn(move || {
-            let client = redis::Client::open("redis://127.0.0.1/").unwrap();
-            let mut con = client.clone().get_connection().unwrap();
+            let mut con = connection().unwrap();
             for _ in 0..100 {
                 s.send(
                     redis::cmd("SET")
@@ -132,8 +147,7 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
 
     assert_eq!(1, count);
 
-    let client = redis::Client::open("redis://127.0.0.1/")?;
-    let mut con = client.get_connection()?;
+    let mut con = connection()?;
     let value: i32 = redis::cmd("GET").arg(&key_name).query(&mut con)?;
     assert_eq!(42, value);
 
@@ -143,8 +157,7 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
 #[test]
 fn test_case_insenstivity() -> Result<()> {
     let key_name = random_key_name();
-    let client = redis::Client::open("redis://127.0.0.1/")?;
-    let mut con = client.get_connection()?;
+    let mut con = connection()?;
 
     redis::cmd("set")
         .arg(&key_name)
@@ -153,10 +166,4 @@ fn test_case_insenstivity() -> Result<()> {
         .exec(&mut con)?;
 
     Ok(())
-}
-
-fn random_key_name() -> String {
-    std::iter::repeat_with(fastrand::alphanumeric)
-        .take(20)
-        .collect()
 }
