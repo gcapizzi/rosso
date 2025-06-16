@@ -134,16 +134,16 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
         }));
     }
 
+    for child in children {
+        child.join().unwrap();
+    }
+
     let mut count = 0;
     for _ in 0..10_000 {
         if let Some(s) = receiver.recv().unwrap() {
             dbg!(s);
             count += 1;
         }
-    }
-
-    for child in children {
-        child.join().unwrap();
     }
 
     assert_eq!(1, count);
