@@ -23,18 +23,18 @@ pub fn start<A: AsyncToSocketAddrs>(addr: A) -> std::io::Result<()> {
 }
 
 async fn handle_client<E: redis::Engine>(engine: Arc<E>, stream: TcpStream) -> std::io::Result<()> {
-    println!("Client connected: {}", stream.peer_addr()?);
+    // println!("Client connected: {}", stream.peer_addr()?);
     let mut reader = BufReader::new(stream.clone());
     let mut writer = BufWriter::new(stream.clone());
 
     while has_data_left(&mut reader).await? {
         let command = resp::parse(&mut reader).await?;
-        println!("Received command: {:?}", command);
+        // println!("Received command: {:?}", command);
         let reply = run_cmd(&engine, command);
         resp::serialise(&mut writer, &reply).await?;
         writer.flush().await?;
     }
-    println!("Client disconnected");
+    // println!("Client disconnected");
     Ok(())
 }
 
