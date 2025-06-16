@@ -5,6 +5,7 @@ fn connection() -> Result<redis::Connection> {
     let addr = ADDR.get_or_init(|| {
         std::env::var("REDIS_ADDR").unwrap_or_else(|_| {
             std::thread::spawn(|| rosso::server::start("127.0.0.1:6379").unwrap());
+            std::thread::sleep(std::time::Duration::from_millis(500));
             "redis://127.0.0.1:6379".to_string()
         })
     });
