@@ -140,8 +140,7 @@ fn test_concurrent_sets_with_nx() -> Result<()> {
 
     let mut count = 0;
     for _ in 0..10_000 {
-        if let Some(s) = receiver.recv().unwrap() {
-            dbg!(s);
+        if receiver.recv().unwrap().is_some() {
             count += 1;
         }
     }
