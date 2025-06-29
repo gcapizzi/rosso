@@ -170,7 +170,10 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
 }
 
 impl<C: Clock> ConcurrentHashMap<'_, C> {
-    fn read<T, R: FnOnce(&Expirable<String>) -> T>(&self, key: &str, reader: R) -> Option<T> {
+    fn read<T, R>(&self, key: &str, reader: R) -> Option<T>
+    where
+        R: FnOnce(&Expirable<String>) -> T,
+    {
         self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
         self.map.read(key, |_, e| reader(e))
     }
