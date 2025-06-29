@@ -60,5 +60,5 @@ pub enum Command {
 }
 
 pub trait Engine {
-    fn call(&self, command: Command) -> Result;
+    fn call(&mut self, command: Command) -> Result;
 }

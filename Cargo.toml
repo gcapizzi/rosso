@@ -10,7 +10,6 @@ fastrand = "2.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["std"] }
 futures-lite = "2.6.0"
 macro_rules_attribute = "0.2.0"
-scc = "2.3.4"
 smol = "2.0.2"
 smol-macros = "0.1.1"
 
