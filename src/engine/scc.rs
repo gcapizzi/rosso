@@ -18,14 +18,6 @@ impl<T> Expirable<T> {
     fn is_expired(&self, now: std::time::SystemTime) -> bool {
         self.expires_at.map_or(false, |t| t <= now)
     }
-
-    fn value(self, now: std::time::SystemTime) -> Option<T> {
-        if self.is_expired(now) {
-            None
-        } else {
-            Some(self.value)
-        }
-    }
 }
 
 pub trait Clock {
@@ -65,7 +57,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
     fn call(&self, command: redis::Command) -> redis::Result {
         match command {
             redis::Command::Get { key: redis::Key(k) } => self
-                .get(k)
+                .read(&k, |e| e.value.to_string())
                 .map(|v| redis::Result::BulkString(v))
                 .unwrap_or(redis::Result::Null),
             redis::Command::Set {
@@ -75,125 +67,120 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 get,
                 condition,
             } => {
-                if let Some(c) = condition {
-                    if c == redis::SetCondition::IfNotExists && self.map.contains(&k) {
-                        return redis::Result::Null;
+                let entry = self.entry(k);
+                let ex = expiration.as_ref().and_then(|e| match e {
+                    redis::Expiration::Seconds(redis::Integer(secs)) => {
+                        Some(self.clock.now() + std::time::Duration::from_secs(*secs as u64))
                     }
-                    if c == redis::SetCondition::IfExists && !self.map.contains(&k) {
-                        return redis::Result::Null;
+                    redis::Expiration::Milliseconds(redis::Integer(millis)) => {
+                        Some(self.clock.now() + std::time::Duration::from_millis(*millis as u64))
+                    }
+                    redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => Some(
+                        std::time::SystemTime::UNIX_EPOCH
+                            + std::time::Duration::from_secs(*secs as u64),
+                    ),
+                    redis::Expiration::UnixTimeMilliseconds(redis::Integer(millis)) => Some(
+                        std::time::SystemTime::UNIX_EPOCH
+                            + std::time::Duration::from_millis(*millis as u64),
+                    ),
+                    redis::Expiration::Keep => None,
+                });
+                match entry {
+                    scc::hash_map::Entry::Occupied(mut e) => {
+                        if condition
+                            .as_ref()
+                            .is_some_and(|c| c == &redis::SetCondition::IfNotExists)
+                        {
+                            return redis::Result::Null;
+                        }
+                        let ex = if let Some(redis::Expiration::Keep) = expiration {
+                            e.expires_at
+                        } else {
+                            ex
+                        };
+                        let pv = std::mem::replace(e.get_mut(), Expirable::new(v, ex)).value;
+                        if get {
+                            redis::Result::BulkString(pv)
+                        } else {
+                            redis::Result::Ok
+                        }
+                    }
+                    scc::hash_map::Entry::Vacant(e) => {
+                        if condition
+                            .as_ref()
+                            .is_some_and(|c| c == &redis::SetCondition::IfExists)
+                        {
+                            return redis::Result::Null;
+                        }
+                        e.insert_entry(Expirable::new(v, ex));
+                        if get {
+                            redis::Result::Null
+                        } else {
+                            redis::Result::Ok
+                        }
                     }
                 }
-                let ex = expiration.and_then(|e| self.expiration_time(&k, e));
-                let pv = self.set(k, v, ex);
-                if !get {
-                    return redis::Result::Ok;
-                }
-                pv.map(|pv| redis::Result::BulkString(pv))
-                    .unwrap_or(redis::Result::Null)
             }
             redis::Command::Client => redis::Result::Ok,
-            redis::Command::Incr { key: redis::Key(k) } => self
-                .incr(k)
-                .map(|v| redis::Result::Integer(v))
-                .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
-            redis::Command::Ttl { key: redis::Key(k) } => redis::Result::Integer(self.ttl(k)),
+            redis::Command::Incr { key: redis::Key(k) } => match self.entry(k) {
+                scc::hash_map::Entry::Occupied(mut e) => e
+                    .value
+                    .parse()
+                    .and_then(|v: i64| {
+                        let nv = v + 1;
+                        e.value = nv.to_string();
+                        Ok(redis::Result::Integer(nv))
+                    })
+                    .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
+                scc::hash_map::Entry::Vacant(e) => {
+                    e.insert_entry(Expirable::new_perpetual("1".to_string()));
+                    redis::Result::Integer(1)
+                }
+            },
+            redis::Command::Ttl { key: redis::Key(k) } => redis::Result::Integer({
+                self.read(&k, |e| {
+                    e.expires_at.map_or(-1, |t| {
+                        t.duration_since(self.clock.now())
+                            .map_or(-2, |d| d.as_secs() as i64)
+                    })
+                })
+                .unwrap_or(-2)
+            }),
             redis::Command::Append {
                 key: redis::Key(k),
                 value: redis::String(v),
-            } => redis::Result::Integer(self.append(k, v)),
-            redis::Command::Strlen { key: redis::Key(k) } => redis::Result::Integer(self.strlen(k)),
+            } => redis::Result::Integer({
+                match self.entry(k) {
+                    scc::hash_map::Entry::Occupied(mut e) => {
+                        e.value.push_str(&v);
+                        e.value.len() as i64
+                    }
+                    scc::hash_map::Entry::Vacant(e) => {
+                        let len = v.len();
+                        e.insert_entry(Expirable::new_perpetual(v));
+                        len as i64
+                    }
+                }
+            }),
+            redis::Command::Strlen { key: redis::Key(k) } => {
+                redis::Result::Integer(self.read(&k, |e| e.value.len() as i64).unwrap_or(0))
+            }
         }
     }
 }
 
 impl<C: Clock> ConcurrentHashMap<'_, C> {
-    fn read_entry<T, R: FnOnce(&Expirable<String>) -> T>(&self, key: &str, reader: R) -> Option<T> {
+    fn read<T, R: FnOnce(&Expirable<String>) -> T>(&self, key: &str, reader: R) -> Option<T> {
         self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
         self.map.read(key, |_, e| reader(e))
     }
 
-    fn get_entry(
-        &self,
-        key: &str,
-    ) -> Option<scc::hash_map::OccupiedEntry<'_, std::string::String, Expirable<std::string::String>>>
-    {
-        self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
-        self.map.get(key)
-    }
-
-    fn get(&self, key: String) -> Option<String> {
-        self.read_entry(&key, |e| e.value.to_string())
-    }
-
-    fn set(
+    fn entry(
         &self,
         key: String,
-        value: String,
-        expires_at: Option<std::time::SystemTime>,
-    ) -> Option<String> {
-        self.map
-            .upsert(key, Expirable::new(value, expires_at))
-            .and_then(|e| e.value(self.clock.now()))
-    }
-
-    fn incr(&self, key: String) -> Result<i64, std::num::ParseIntError> {
-        if let Some(mut e) = self.get_entry(&key) {
-            let mut new_value: i64 = e.value.parse()?;
-            new_value += 1;
-            e.value = new_value.to_string();
-            Ok(new_value)
-        } else {
-            self.map
-                .upsert(key, Expirable::new_perpetual("1".to_string()));
-            Ok(1)
-        }
-    }
-
-    fn expiration_time(
-        &self,
-        key: &str,
-        expiration: redis::Expiration,
-    ) -> Option<std::time::SystemTime> {
-        match expiration {
-            redis::Expiration::Seconds(redis::Integer(secs)) => {
-                Some(self.clock.now() + std::time::Duration::from_secs(secs as u64))
-            }
-            redis::Expiration::Milliseconds(redis::Integer(millis)) => {
-                Some(self.clock.now() + std::time::Duration::from_millis(millis as u64))
-            }
-            redis::Expiration::UnixTimeSeconds(redis::Integer(secs)) => Some(
-                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64),
-            ),
-            redis::Expiration::UnixTimeMilliseconds(redis::Integer(millis)) => Some(
-                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis as u64),
-            ),
-            redis::Expiration::Keep => self.map.get(key).and_then(|e| e.expires_at),
-        }
-    }
-
-    fn ttl(&self, key: String) -> i64 {
-        self.read_entry(&key, |e| {
-            e.expires_at.map_or(-1, |t| {
-                t.duration_since(self.clock.now())
-                    .map_or(-2, |d| d.as_secs() as i64)
-            })
-        })
-        .unwrap_or(-2)
-    }
-
-    fn append(&self, key: String, value: String) -> i64 {
-        if let Some(mut e) = self.get_entry(&key) {
-            e.value.push_str(&value);
-            e.value.len() as i64
-        } else {
-            let len = value.len();
-            self.map.upsert(key, Expirable::new_perpetual(value));
-            len as i64
-        }
-    }
-
-    fn strlen(&self, key: String) -> i64 {
-        self.read_entry(&key, |e| e.value.len() as i64).unwrap_or(0)
+    ) -> scc::hash_map::Entry<'_, std::string::String, Expirable<std::string::String>> {
+        self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
+        self.map.entry(key)
     }
 }
 
