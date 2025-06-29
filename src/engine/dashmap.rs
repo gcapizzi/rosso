@@ -32,33 +32,33 @@ impl Clock for StdClock {
     }
 }
 
-pub struct ConcurrentHashMap<'a, C = StdClock> {
-    map: scc::HashMap<String, Expirable<String>>,
+pub struct DashMap<'a, C = StdClock> {
+    map: dashmap::DashMap<String, Expirable<String>>,
     clock: &'a C,
 }
 
-impl ConcurrentHashMap<'_> {
+impl DashMap<'_> {
     pub fn new() -> Self {
-        ConcurrentHashMap {
-            map: scc::HashMap::new(),
+        DashMap {
+            map: dashmap::DashMap::new(),
             clock: &StdClock,
         }
     }
 
-    pub fn with_clock<C: Clock>(clock: &C) -> ConcurrentHashMap<C> {
-        ConcurrentHashMap {
-            map: scc::HashMap::new(),
+    pub fn with_clock<C: Clock>(clock: &C) -> DashMap<C> {
+        DashMap {
+            map: dashmap::DashMap::new(),
             clock,
         }
     }
 }
 
-impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
+impl<C: Clock> redis::Engine for DashMap<'_, C> {
     fn call(&self, command: redis::Command) -> redis::Result {
         match command {
             redis::Command::Get { key: redis::Key(k) } => self
-                .read(&k, |e| e.value.to_string())
-                .map(|v| redis::Result::BulkString(v))
+                .get(&k)
+                .map(|e| redis::Result::BulkString(e.value.clone()))
                 .unwrap_or(redis::Result::Null),
             redis::Command::Set {
                 key: redis::Key(k),
@@ -86,7 +86,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                     redis::Expiration::Keep => None,
                 });
                 match entry {
-                    scc::hash_map::Entry::Occupied(mut e) => {
+                    dashmap::Entry::Occupied(mut e) => {
                         if condition
                             .as_ref()
                             .is_some_and(|c| c == &redis::SetCondition::IfNotExists)
@@ -94,7 +94,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                             return redis::Result::Null;
                         }
                         let ex = if let Some(redis::Expiration::Keep) = expiration {
-                            e.expires_at
+                            e.get().expires_at
                         } else {
                             ex
                         };
@@ -105,7 +105,7 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                             redis::Result::Ok
                         }
                     }
-                    scc::hash_map::Entry::Vacant(e) => {
+                    dashmap::Entry::Vacant(e) => {
                         if condition
                             .as_ref()
                             .is_some_and(|c| c == &redis::SetCondition::IfExists)
@@ -123,39 +123,41 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
             }
             redis::Command::Client => redis::Result::Ok,
             redis::Command::Incr { key: redis::Key(k) } => match self.entry(k) {
-                scc::hash_map::Entry::Occupied(mut e) => e
+                dashmap::Entry::Occupied(mut e) => e
+                    .get()
                     .value
                     .parse()
                     .and_then(|v: i64| {
                         let nv = v + 1;
-                        e.value = nv.to_string();
+                        e.get_mut().value = nv.to_string();
                         Ok(redis::Result::Integer(nv))
                     })
                     .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
-                scc::hash_map::Entry::Vacant(e) => {
+                dashmap::Entry::Vacant(e) => {
                     e.insert_entry(Expirable::new_perpetual("1".to_string()));
                     redis::Result::Integer(1)
                 }
             },
             redis::Command::Ttl { key: redis::Key(k) } => redis::Result::Integer({
-                self.read(&k, |e| {
-                    e.expires_at.map_or(-1, |t| {
-                        t.duration_since(self.clock.now())
-                            .map_or(-2, |d| d.as_secs() as i64)
+                self.get(&k)
+                    .map(|e| {
+                        e.expires_at.map_or(-1, |t| {
+                            t.duration_since(self.clock.now())
+                                .map_or(-2, |d| d.as_secs() as i64)
+                        })
                     })
-                })
-                .unwrap_or(-2)
+                    .unwrap_or(-2)
             }),
             redis::Command::Append {
                 key: redis::Key(k),
                 value: redis::String(v),
             } => redis::Result::Integer({
                 match self.entry(k) {
-                    scc::hash_map::Entry::Occupied(mut e) => {
-                        e.value.push_str(&v);
-                        e.value.len() as i64
+                    dashmap::Entry::Occupied(mut e) => {
+                        e.get_mut().value.push_str(&v);
+                        e.get().value.len() as i64
                     }
-                    scc::hash_map::Entry::Vacant(e) => {
+                    dashmap::Entry::Vacant(e) => {
                         let len = v.len();
                         e.insert_entry(Expirable::new_perpetual(v));
                         len as i64
@@ -163,26 +165,29 @@ impl<C: Clock> redis::Engine for ConcurrentHashMap<'_, C> {
                 }
             }),
             redis::Command::Strlen { key: redis::Key(k) } => {
-                redis::Result::Integer(self.read(&k, |e| e.value.len() as i64).unwrap_or(0))
+                redis::Result::Integer(self.get(&k).map(|e| e.value.len() as i64).unwrap_or(0))
             }
         }
     }
 }
 
-impl<C: Clock> ConcurrentHashMap<'_, C> {
-    fn read<T, R>(&self, key: &str, reader: R) -> Option<T>
-    where
-        R: FnOnce(&Expirable<String>) -> T,
+impl<C: Clock> DashMap<'_, C> {
+    fn get(
+        &self,
+        key: &str,
+    ) -> Option<dashmap::mapref::one::Ref<'_, std::string::String, Expirable<std::string::String>>>
     {
-        self.map.remove_if(key, |e| e.is_expired(self.clock.now()));
-        self.map.read(key, |_, e| reader(e))
+        self.map
+            .remove_if(key, |_, e| e.is_expired(self.clock.now()));
+        self.map.get(key)
     }
 
     fn entry(
         &self,
         key: String,
-    ) -> scc::hash_map::Entry<'_, std::string::String, Expirable<std::string::String>> {
-        self.map.remove_if(&key, |e| e.is_expired(self.clock.now()));
+    ) -> dashmap::Entry<'_, std::string::String, Expirable<std::string::String>> {
+        self.map
+            .remove_if(&key, |_, e| e.is_expired(self.clock.now()));
         self.map.entry(key)
     }
 }
@@ -224,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_set_and_get() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -243,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_key() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Get {
             key: redis::Key("nonexistent".to_string()),
@@ -254,7 +259,7 @@ mod tests {
     #[test]
     fn test_set_expiration_seconds() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -276,7 +281,7 @@ mod tests {
     #[test]
     fn test_set_expiration_milliseconds() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -298,7 +303,7 @@ mod tests {
     #[test]
     fn test_set_expiration_unix_time_seconds() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -322,7 +327,7 @@ mod tests {
     #[test]
     fn test_set_expiration_unix_time_milliseconds() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -347,7 +352,7 @@ mod tests {
     #[test]
     fn test_set_expiration_keep() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -378,7 +383,7 @@ mod tests {
     #[test]
     fn test_set_expiration_reset() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -408,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_set_get() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -438,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_set_if_not_exists() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         // key does not exist
         let result = redis.call(redis::Command::Set {
@@ -489,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_set_if_exists() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         // key does not exist
         let result = redis.call(redis::Command::Set {
@@ -552,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_client() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Client);
         assert_eq!(result, redis::Result::Ok);
@@ -561,7 +566,7 @@ mod tests {
     #[test]
     fn test_incr() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Incr {
             key: redis::Key("counter".to_string()),
@@ -596,7 +601,7 @@ mod tests {
     #[test]
     fn test_ttl() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("foo".to_string()),
@@ -628,7 +633,7 @@ mod tests {
     #[test]
     fn test_no_ttl() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("foo".to_string()),
@@ -647,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_append() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Append {
             key: redis::Key("key".to_string()),
@@ -672,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_append_to_expired_key() {
-        let redis = ConcurrentHashMap::new();
+        let redis = DashMap::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -698,7 +703,7 @@ mod tests {
     #[test]
     fn test_strlen() {
         let clock = FakeClock::new_now();
-        let redis = ConcurrentHashMap::with_clock(&clock);
+        let redis = DashMap::with_clock(&clock);
 
         let result = redis.call(redis::Command::Strlen {
             key: redis::Key("key".to_string()),

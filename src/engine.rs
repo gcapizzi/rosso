@@ -1,3 +1,3 @@
-pub mod scc;
+pub mod dashmap;
 
-pub use scc::ConcurrentHashMap;
+pub use dashmap::DashMap;

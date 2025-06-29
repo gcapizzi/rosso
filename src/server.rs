@@ -10,7 +10,7 @@ use crate::{engine, redis, resp, resp_cmd};
 pub fn start<A: AsyncToSocketAddrs>(addr: A) -> std::io::Result<()> {
     let ex = LocalExecutor::new();
     smol::block_on(ex.run(async {
-        let engine = engine::ConcurrentHashMap::new();
+        let engine = engine::DashMap::new();
         let engine_pointer = Arc::new(engine);
         let listener = TcpListener::bind(addr).await?;
         loop {
