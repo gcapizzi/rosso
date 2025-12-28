@@ -41,7 +41,7 @@ async fn handle_client<E: redis::Engine>(engine: Arc<E>, stream: TcpStream) -> s
 fn run_cmd<E: redis::Engine>(engine: &Arc<E>, command: resp::Value) -> resp::Value {
     resp_cmd::parse_command(command)
         .map(|cmd| engine.call(cmd))
-        .map(|res| resp_cmd::serialise_result(res))
+        .map(resp_cmd::serialise_result)
         .unwrap_or_else(|e| resp::Value::Error(format!("ERR {}", e)))
 }
 

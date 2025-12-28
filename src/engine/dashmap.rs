@@ -16,7 +16,7 @@ impl<T> Expirable<T> {
     }
 
     fn is_expired(&self, now: std::time::SystemTime) -> bool {
-        self.expires_at.map_or(false, |t| t <= now)
+        self.expires_at.is_some_and(|t| t <= now)
     }
 }
 
@@ -45,11 +45,17 @@ impl Engine<'_> {
         }
     }
 
-    pub fn with_clock<C: Clock>(clock: &C) -> Engine<C> {
+    pub fn with_clock<C: Clock>(clock: &'_ C) -> Engine<'_, C> {
         Engine {
             map: dashmap::DashMap::new(),
             clock,
         }
+    }
+}
+
+impl Default for Engine<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -83,7 +89,7 @@ impl<C: Clock> redis::Engine for Engine<'_, C> {
                         std::time::SystemTime::UNIX_EPOCH
                             + std::time::Duration::from_millis(*millis as u64),
                     ),
-                    redis::Expiration::Keep => None,
+                    _ => None,
                 });
                 match entry {
                     dashmap::Entry::Occupied(mut e) => {
@@ -127,10 +133,10 @@ impl<C: Clock> redis::Engine for Engine<'_, C> {
                     .get()
                     .value
                     .parse()
-                    .and_then(|v: i64| {
+                    .map(|v: i64| {
                         let nv = v + 1;
                         e.get_mut().value = nv.to_string();
-                        Ok(redis::Result::Integer(nv))
+                        redis::Result::Integer(nv)
                     })
                     .unwrap_or_else(|e| redis::Result::Error(e.to_string())),
                 dashmap::Entry::Vacant(e) => {

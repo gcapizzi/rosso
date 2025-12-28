@@ -15,9 +15,7 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
         "APPEND" => append(&mut cmd),
         "STRLEN" => strlen(&mut cmd),
         "CLIENT" => Ok(redis::Command::Client),
-        _ => {
-            return Err(anyhow!("unknown command '{}'", cmd_name));
-        }
+        _ => Err(anyhow!("unknown command '{}'", cmd_name)),
     }
 }
 
@@ -98,17 +96,17 @@ fn arg(args: &mut VecDeque<String>) -> Result<String> {
 }
 
 fn key(args: &mut VecDeque<String>) -> Result<redis::Key> {
-    arg(args).map(|v| redis::Key(v))
+    arg(args).map(redis::Key)
 }
 
 fn string(args: &mut VecDeque<String>) -> Result<redis::String> {
-    arg(args).map(|v| redis::String(v))
+    arg(args).map(redis::String)
 }
 
 fn integer(args: &mut VecDeque<String>) -> Result<redis::Integer> {
     arg(args)
         .and_then(|v| v.parse().map_err(|_| anyhow!("not an integer: {}", v)))
-        .map(|v| redis::Integer(v))
+        .map(redis::Integer)
 }
 
 fn to_vec(value: resp::Value) -> Result<VecDeque<String>> {
@@ -119,9 +117,9 @@ fn to_vec(value: resp::Value) -> Result<VecDeque<String>> {
                 if let resp::Value::BulkString(s) = v {
                     Ok(s)
                 } else {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "invalid command: it should be an array of bulk strings",
-                    ));
+                    ))
                 }
             })
             .collect::<Result<VecDeque<_>>>()
