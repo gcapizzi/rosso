@@ -57,6 +57,10 @@ pub enum Command {
     Strlen {
         key: Key,
     },
+    Expire {
+        key: Key,
+        seconds: Integer,
+    },
 }
 
 pub trait Engine {

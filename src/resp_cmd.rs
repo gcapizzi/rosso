@@ -14,6 +14,7 @@ pub fn parse_command(command: resp::Value) -> Result<redis::Command> {
         "TTL" => ttl(&mut cmd),
         "APPEND" => append(&mut cmd),
         "STRLEN" => strlen(&mut cmd),
+        "EXPIRE" => expire(&mut cmd),
         "CLIENT" => Ok(redis::Command::Client),
         _ => Err(anyhow!("unknown command '{}'", cmd_name)),
     }
@@ -89,6 +90,12 @@ fn append(args: &mut VecDeque<String>) -> Result<redis::Command> {
 fn strlen(args: &mut VecDeque<String>) -> Result<redis::Command> {
     let key = key(args)?;
     Ok(redis::Command::Strlen { key })
+}
+
+fn expire(args: &mut VecDeque<String>) -> Result<redis::Command> {
+    let key = key(args)?;
+    let seconds = integer(args)?;
+    Ok(redis::Command::Expire { key, seconds })
 }
 
 fn arg(args: &mut VecDeque<String>) -> Result<String> {
@@ -415,6 +422,23 @@ mod tests {
             parsed_command,
             redis::Command::Strlen {
                 key: Key("key".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_command_expire() {
+        let command = resp::Value::Array(vec![
+            resp::Value::BulkString("EXPIRE".to_string()),
+            resp::Value::BulkString("key".to_string()),
+            resp::Value::BulkString("42".to_string()),
+        ]);
+        let parsed_command = parse_command(command).unwrap();
+        assert_eq!(
+            parsed_command,
+            redis::Command::Expire {
+                key: Key("key".to_string()),
+                seconds: Integer(42),
             }
         );
     }

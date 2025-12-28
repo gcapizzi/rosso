@@ -79,6 +79,12 @@ fn test_expiration() -> Result<()> {
     let value: Option<i32> = redis::cmd("GET").arg(&key_name).query(&mut con)?;
     assert_eq!(None, value);
 
+    redis::cmd("SET").arg(&key_name).arg(42).exec(&mut con)?;
+
+    redis::cmd("EXPIRE").arg(&key_name).arg(10).exec(&mut con)?;
+    let ttl: i32 = redis::cmd("TTL").arg(&key_name).query(&mut con)?;
+    assert_eq!(9, ttl);
+
     Ok(())
 }
 

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
+assertor = "0.0.4"
 async-net = "2.0.0"
 dashmap = "6.1.0"
 fastrand = "2.3.0"

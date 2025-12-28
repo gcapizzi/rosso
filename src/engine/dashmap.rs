@@ -173,6 +173,17 @@ impl<C: Clock> redis::Engine for Engine<'_, C> {
             redis::Command::Strlen { key: redis::Key(k) } => {
                 redis::Result::Integer(self.get(&k).map(|e| e.value.len() as i64).unwrap_or(0))
             }
+            redis::Command::Expire {
+                key: redis::Key(k),
+                seconds: redis::Integer(s),
+            } => match self.entry(k) {
+                dashmap::Entry::Occupied(mut e) => {
+                    e.get_mut().expires_at =
+                        Some(self.clock.now() + std::time::Duration::from_secs(s as u64));
+                    redis::Result::Integer(1)
+                }
+                dashmap::Entry::Vacant(_) => redis::Result::Integer(0),
+            },
         }
     }
 }
@@ -736,5 +747,31 @@ mod tests {
             key: redis::Key("key".to_string()),
         });
         assert_eq!(result, redis::Result::Integer(0));
+    }
+
+    #[test]
+    fn test_expire() {
+        let clock = FakeClock::new_now();
+        let redis = super::Engine::with_clock(&clock);
+
+        let result = redis.call(redis::Command::Set {
+            key: redis::Key("foo".to_string()),
+            value: redis::String("42".to_string()),
+            expiration: None,
+            get: false,
+            condition: None,
+        });
+        assert_eq!(result, redis::Result::Ok);
+
+        let result = redis.call(redis::Command::Expire {
+            key: redis::Key("foo".to_string()),
+            seconds: redis::Integer(3),
+        });
+        assert_eq!(result, redis::Result::Integer(1));
+
+        let ttl = redis.call(redis::Command::Ttl {
+            key: redis::Key("foo".to_string()),
+        });
+        assert_eq!(ttl, redis::Result::Integer(3));
     }
 }
