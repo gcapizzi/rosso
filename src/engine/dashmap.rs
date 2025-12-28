@@ -32,28 +32,28 @@ impl Clock for StdClock {
     }
 }
 
-pub struct DashMap<'a, C = StdClock> {
+pub struct Engine<'a, C = StdClock> {
     map: dashmap::DashMap<String, Expirable<String>>,
     clock: &'a C,
 }
 
-impl DashMap<'_> {
+impl Engine<'_> {
     pub fn new() -> Self {
-        DashMap {
+        Engine {
             map: dashmap::DashMap::new(),
             clock: &StdClock,
         }
     }
 
-    pub fn with_clock<C: Clock>(clock: &C) -> DashMap<C> {
-        DashMap {
+    pub fn with_clock<C: Clock>(clock: &C) -> Engine<C> {
+        Engine {
             map: dashmap::DashMap::new(),
             clock,
         }
     }
 }
 
-impl<C: Clock> redis::Engine for DashMap<'_, C> {
+impl<C: Clock> redis::Engine for Engine<'_, C> {
     fn call(&self, command: redis::Command) -> redis::Result {
         match command {
             redis::Command::Get { key: redis::Key(k) } => self
@@ -171,7 +171,7 @@ impl<C: Clock> redis::Engine for DashMap<'_, C> {
     }
 }
 
-impl<C: Clock> DashMap<'_, C> {
+impl<C: Clock> Engine<'_, C> {
     fn get(
         &self,
         key: &str,
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_set_and_get() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_key() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Get {
             key: redis::Key("nonexistent".to_string()),
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_set_expiration_seconds() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn test_set_expiration_milliseconds() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_set_expiration_unix_time_seconds() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_set_expiration_unix_time_milliseconds() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_set_expiration_keep() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_set_expiration_reset() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_set_get() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_set_if_not_exists() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         // key does not exist
         let result = redis.call(redis::Command::Set {
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_set_if_exists() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         // key does not exist
         let result = redis.call(redis::Command::Set {
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_client() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Client);
         assert_eq!(result, redis::Result::Ok);
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn test_incr() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Incr {
             key: redis::Key("counter".to_string()),
@@ -601,7 +601,7 @@ mod tests {
     #[test]
     fn test_ttl() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("foo".to_string()),
@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn test_no_ttl() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("foo".to_string()),
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_append() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Append {
             key: redis::Key("key".to_string()),
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_append_to_expired_key() {
-        let redis = DashMap::new();
+        let redis = super::Engine::new();
 
         let result = redis.call(redis::Command::Set {
             key: redis::Key("key".to_string()),
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn test_strlen() {
         let clock = FakeClock::new_now();
-        let redis = DashMap::with_clock(&clock);
+        let redis = super::Engine::with_clock(&clock);
 
         let result = redis.call(redis::Command::Strlen {
             key: redis::Key("key".to_string()),
