@@ -5,12 +5,12 @@ use smol::{
 };
 use std::sync::Arc;
 
-use crate::{engine, redis, resp, resp_cmd};
+use crate::{dashmap, redis, resp, resp_cmd};
 
 pub fn start<A: AsyncToSocketAddrs>(addr: A) -> std::io::Result<()> {
     let ex = LocalExecutor::new();
     smol::block_on(ex.run(async {
-        let engine = engine::Engine::new();
+        let engine = dashmap::Engine::new();
         let engine_pointer = Arc::new(engine);
         let listener = TcpListener::bind(addr).await?;
         loop {
